@@ -1,0 +1,33 @@
+name: Feature request
+description: Suggest an idea or a new capability
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Reminder: android-agent is for the operator's **own** device. Requests to
+        bypass locks, FRP, carrier locks, or to target devices you don't own are
+        out of scope and will be declined.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What are you trying to do that's hard today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [audit, optimize, flash, unlock, bridge/sandbox, LLM backend, CLI/UX, docs, other]
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope confirmation
+      options:
+        - label: This is for a device the operator owns / is authorized to modify.
+          required: true

@@ -16,9 +16,9 @@ from pydantic import BaseModel, Field
 class RiskLevel(str, Enum):
     """How dangerous a step is, surfaced to the user before confirmation."""
 
-    NONE = "none"          # read-only, nothing changes on the device
-    LOW = "low"            # reversible (e.g. disable a package, clear cache)
-    HIGH = "high"          # destructive / hard to undo (flash, wipe, unlock)
+    NONE = "none"  # read-only, nothing changes on the device
+    LOW = "low"  # reversible (e.g. disable a package, clear cache)
+    HIGH = "high"  # destructive / hard to undo (flash, wipe, unlock)
 
 
 class Mission(str, Enum):
@@ -31,7 +31,7 @@ class Mission(str, Enum):
 
 
 class DeviceMode(str, Enum):
-    ADB = "adb"            # booted into Android, debugging enabled
+    ADB = "adb"  # booted into Android, debugging enabled
     FASTBOOT = "fastboot"  # bootloader mode
 
 
@@ -57,19 +57,19 @@ class Step(BaseModel):
     interpreted by a shell.
     """
 
-    capability: str                       # which capability executes this
-    human: str                            # "Disable the pre-installed news app"
-    command: list[str]                    # ["pm", "disable-user", "com.x.news"]
+    capability: str  # which capability executes this
+    human: str  # "Disable the pre-installed news app"
+    command: list[str]  # ["pm", "disable-user", "com.x.news"]
     risk: RiskLevel = RiskLevel.NONE
     reversible: bool = True
-    undo: list[str] | None = None         # command to reverse a LOW-risk step
+    undo: list[str] | None = None  # command to reverse a LOW-risk step
 
 
 class Plan(BaseModel):
     """What the agent proposes to do, before anything runs."""
 
     mission: Mission
-    summary: str                          # one-paragraph human explanation
+    summary: str  # one-paragraph human explanation
     steps: list[Step] = Field(default_factory=list)
 
     @property

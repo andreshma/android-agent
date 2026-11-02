@@ -42,9 +42,12 @@ class FlashCapability(Capability):
         )
 
     def verify_target(self, device: Device, expected_product: str) -> bool:
-        """Guardrail: refuse to flash if the device product doesn't match."""
-        facts = self.gather_facts(device)
-        # TODO(contributors): parse `product_raw` robustly and compare.
+        """Guardrail: refuse to flash if the device product doesn't match.
+
+        TODO(contributors): read ``self.gather_facts(device)["product_raw"]``,
+        parse it robustly, and compare against ``expected_product`` before any
+        flash is allowed to proceed.
+        """
         raise NotImplementedError(
             "verify_target: implement strict model/variant matching before flashing."
         )

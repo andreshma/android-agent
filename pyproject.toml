@@ -45,5 +45,21 @@ packages = ["src/android_agent"]
 line-length = 100
 target-version = "py310"
 
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "S"]
+ignore = [
+  "S603", "S607",  # argv is validated by the allowlist before exec
+  "B008",          # typer.Argument/Option in defaults is the idiomatic Typer pattern
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]  # asserts are fine in tests
+
+[tool.mypy]
+python_version = "3.10"
+packages = ["android_agent"]
+ignore_missing_imports = true
+warn_unused_ignores = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -47,8 +47,12 @@ def _show_plan(plan: Plan, *, drill_down: bool) -> None:
             RiskLevel.LOW: "yellow",
             RiskLevel.HIGH: "bold red",
         }[step.risk]
-        row = [str(i), step.human, f"[{risk_style}]{step.risk.value}[/]",
-               "yes" if step.reversible else "no"]
+        row = [
+            str(i),
+            step.human,
+            f"[{risk_style}]{step.risk.value}[/]",
+            "yes" if step.reversible else "no",
+        ]
         if drill_down:
             row.append(" ".join(step.command))
         table.add_row(*row)
@@ -107,8 +111,7 @@ def run(
     # --- confirmation (HIGH risk needs an explicit second yes) ---
     if plan.max_risk is RiskLevel.HIGH:
         console.print(
-            "[bold red]This plan contains HIGH-risk, irreversible steps "
-            "(data may be erased).[/]"
+            "[bold red]This plan contains HIGH-risk, irreversible steps (data may be erased).[/]"
         )
         if not typer.confirm("Type yes to confirm you understand and want to proceed"):
             raise typer.Abort()
