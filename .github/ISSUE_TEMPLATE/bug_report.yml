@@ -1,0 +1,43 @@
+name: Bug report
+description: Something isn't working as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report! For **security vulnerabilities**, do not use this
+        form — report privately via the Security tab.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, what happened instead?
+    validations:
+      required: true
+  - type: input
+    id: command
+    attributes:
+      label: Command / mission
+      placeholder: "android-agent run audit \"...\" -s SERIAL"
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options: [Linux, Windows, macOS, Other]
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      placeholder: "android-agent 0.1.0, Python 3.11, adb 35.0.0, backend ollama/llama3.1"
+  - type: dropdown
+    id: device-mode
+    attributes:
+      label: Device mode
+      options: [adb, fastboot, "n/a — no device"]
+  - type: textarea
+    id: logs
+    attributes:
+      label: Output / logs
+      render: shell

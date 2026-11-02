@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from ..models import Device, DeviceMode
 from . import allowlist, parse
-from .sandbox import RunOutput, Runner
+from .sandbox import Runner, RunOutput
 
 
 def with_serial(command: list[str], serial: str) -> list[str]:

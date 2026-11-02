@@ -14,7 +14,7 @@ import httpx
 
 from ..models import Mission, Plan
 from . import schema
-from .base import SYSTEM_PROMPT, LLM
+from .base import LLM, SYSTEM_PROMPT
 
 
 class OllamaLLM(LLM):

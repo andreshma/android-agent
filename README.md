@@ -1,5 +1,10 @@
 # android-agent
 
+![CI](https://github.com/your-org/android-agent/actions/workflows/ci.yml/badge.svg)
+![Python](https://img.shields.io/badge/python-3.10%2B-blue)
+![License](https://img.shields.io/badge/license-Apache--2.0-green)
+![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey)
+
 An LLM-driven agent that helps you **audit, optimize, flash and unlock _your own_
 Android device** — inside a sandbox, with clear human-language explanations, and
 with your confirmation before anything changes.
@@ -111,6 +116,15 @@ android-agent --help
 android-agent devices
 android-agent run audit "which apps can use my microphone?" -s <SERIAL> --drill-down
 ```
+
+## Documentation
+
+- [Architecture](docs/ARCHITECTURE.md) — layers, C4 views, patterns, invariants
+- [Architecture Decision Records](docs/adr/README.md)
+- [Threat model](docs/THREAT_MODEL.md) — STRIDE analysis
+- [Security policy](SECURITY.md) — scope boundary & how to report issues
+- [Contributing](CONTRIBUTING.md) · [Code of Conduct](CODE_OF_CONDUCT.md) ·
+  [Changelog](CHANGELOG.md)
 
 ## License
 

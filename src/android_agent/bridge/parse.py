@@ -28,9 +28,7 @@ def parse_adb_devices(stdout: str) -> list[Device]:
         if len(parts) < 2 or parts[1] != "device":
             continue
         serial = parts[0]
-        fields = dict(
-            tok.split(":", 1) for tok in parts[2:] if ":" in tok
-        )
+        fields = dict(tok.split(":", 1) for tok in parts[2:] if ":" in tok)
         devices.append(
             Device(
                 serial=serial,

@@ -13,7 +13,7 @@ import os
 
 from ..models import Mission, Plan
 from . import schema
-from .base import SYSTEM_PROMPT, LLM
+from .base import LLM, SYSTEM_PROMPT
 
 # Default to the latest capable Claude model; override via constructor.
 _DEFAULT_MODEL = "claude-opus-4-8"
@@ -27,8 +27,7 @@ class AnthropicLLM(LLM):
             import anthropic  # noqa: F401
         except ImportError as exc:  # pragma: no cover
             raise ImportError(
-                "The anthropic extra is not installed. "
-                "Run: pip install android-agent[anthropic]"
+                "The anthropic extra is not installed. Run: pip install android-agent[anthropic]"
             ) from exc
         from anthropic import Anthropic
 
