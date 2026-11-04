@@ -8,7 +8,7 @@ roll back. Nothing is removed permanently.
 from __future__ import annotations
 
 from ..models import Device, Mission, Plan, RiskLevel, Step
-from . import bloatware, permissions
+from . import battery, bloatware, permissions
 from .base import Capability
 
 
@@ -28,7 +28,20 @@ class OptimizeCapability(Capability):
             "installed_count": len(installed_pkgs),
             "disabled_packages": permissions.parse_package_list(disabled.stdout),
             "bloatware_candidates": candidates,
+            "battery_top_consumers": self.battery_top_consumers(device),
         }
+
+    def battery_top_consumers(self, device: Device, limit: int = 10) -> list[dict]:
+        """Read-only: the apps estimated to drain the most battery."""
+        stats = self.bridge.execute(
+            ["adb", "-s", device.serial, "shell", "dumpsys", "batterystats"]
+        )
+        uids = self.bridge.execute(
+            ["adb", "-s", device.serial, "shell", "cmd", "package", "list", "packages", "-U"]
+        )
+        return battery.top_power_consumers(
+            stats.stdout, battery.parse_uid_map(uids.stdout), limit=limit
+        )
 
     @staticmethod
     def disable_package_step(serial: str, package: str, reason: str = "") -> Step:

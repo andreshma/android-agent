@@ -38,8 +38,6 @@ jobs:
 
       - name: Type check (mypy)
         run: mypy src
-        # Non-blocking while the codebase is pre-1.0.
-        continue-on-error: true
 
       - name: Test
         run: pytest -q

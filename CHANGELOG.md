@@ -7,6 +7,12 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Battery drain analysis** in optimize: ranks the top power-consuming apps by
+  joining `dumpsys batterystats` estimated power use with a uid→package map
+  (`battery.top_power_consumers`), surfaced in the optimize facts.
+- **docs/TESTING.md**: manual on-device test checklist (read-only → reversible →
+  destructive), complementing the automated suite.
+- CI now runs **mypy as a blocking step** (the codebase is type-clean).
 - **`debloat` command**: deterministic (no-LLM) detection of likely-bloatware
   apps (OEM/carrier/preinstalled bundles) and a reversible plan that disables
   them; core/system apps are protected from being flagged.
@@ -46,8 +52,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Test suite (allowlist, consent, parsers, serial injection, schema).
 
 ### Known gaps / TODO
-- Battery/startup offender analysis in optimize (bloatware detection landed;
-  power-draw ranking still open).
+- No real-device integration test yet (see docs/TESTING.md for the manual
+  checklist); unit tests use fake bridges.
 - `ContainerRunner` image must be built/trusted by the operator.
 
 [Unreleased]: https://github.com/andreshma/android-agent/commits/main
