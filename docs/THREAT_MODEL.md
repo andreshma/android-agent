@@ -58,21 +58,25 @@ The **LLM output** and the **device output** are both treated as untrusted.
 
 ### Denial of Service
 - *Bricking the device.* Mitigation: flash is HIGH-risk, gated by an extra
-  confirmation, a required backup step, and (planned) strict model/variant
-  verification before any `fastboot flash`.
+  confirmation, a required backup step, and strict model/variant verification
+  (`FlashCapability.require_target`) that refuses to flash unless the device's
+  `product` matches the image's declared target — and refuses outright when the
+  product can't be read (fail-safe).
 - *Hung toolchain.* Mitigation: every bridge call has a timeout.
 
 ### Elevation of Privilege
-- *Toolchain or device payload reaching the host/network.* Mitigation
-  (planned/partial): the `ContainerRunner` runs adb/fastboot in a network-less
-  container with only USB passed through, so a compromised binary or payload is
-  contained.
+- *Toolchain or device payload reaching the host/network.* Mitigation: the
+  `ContainerRunner` runs adb/fastboot in a network-less container (USB passed
+  through on Linux; host adb server over the gateway on Windows/macOS), so a
+  compromised binary or payload is contained away from the host and internet.
 
 ## Residual risks / open items
 
-- Action audit log (repudiation) — not yet implemented.
-- `ContainerRunner` — interface defined, implementation is a contributor TODO.
-- Strict flash model/variant verification — a contributor TODO.
+- The container image must be built and trusted by the operator; a tampered
+  image would undermine the sandbox (build it yourself from the provided
+  Dockerfile).
+- On Windows/macOS the container reaches the host adb server, a deliberately
+  narrow channel; USB is not isolated from the host there as it is on Linux.
 - The operator can still physically confirm a destructive action; the tool makes
   it *explainable and deliberate*, it does not remove the operator's authority
   over their own device.
