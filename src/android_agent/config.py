@@ -24,5 +24,6 @@ class Config:
             llm_backend=os.environ.get("ANDROID_AGENT_LLM", "ollama"),
             ollama_model=os.environ.get("ANDROID_AGENT_OLLAMA_MODEL", "llama3.1"),
             ollama_host=os.environ.get("OLLAMA_HOST", "http://localhost:11434"),
+            anthropic_model=os.environ.get("ANDROID_AGENT_ANTHROPIC_MODEL", "claude-opus-4-8"),
             runner=os.environ.get("ANDROID_AGENT_RUNNER", "local"),
         )

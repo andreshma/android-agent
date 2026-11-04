@@ -13,28 +13,45 @@ from .sandbox import Runner, RunOutput
 
 
 def with_serial(command: list[str], serial: str) -> list[str]:
-    """Insert ``-s <serial>`` after the tool so every action targets the one
-    authorized device — regardless of what the LLM proposed. Not added to the
-    ``devices`` sub-command, which takes no selector."""
+    """Force every action onto the one authorized device.
+
+    Any ``-s <value>`` the caller/LLM supplied is STRIPPED and replaced with the
+    authorized serial, so a plan can never target another connected device. The
+    ``devices`` sub-command takes no selector and is left alone."""
     if not command or command[0] not in {"adb", "fastboot"}:
         return command
-    if "-s" in command:
-        return command
-    rest = command[1:]
+    tool, rest = command[0], command[1:]
+    # Drop a leading selector if present.
+    if len(rest) >= 2 and rest[0] == "-s":
+        rest = rest[2:]
     if rest and rest[0] == "devices":
-        return command
-    return [command[0], "-s", serial, *rest]
+        return [tool, *rest]
+    return [tool, "-s", serial, *rest]
+
+
+# Per-key execution timeouts (seconds). ``None`` means no timeout — killing a
+# partition write mid-flight can brick the device, so flashing is never timed
+# out. Anything not listed uses the default.
+_AUTO = object()
+_DEFAULT_TIMEOUT = 120.0
+_TIMEOUTS: dict[str, float | None] = {
+    "fastboot:flash": None,
+    "fastboot:flashing unlock": None,
+    "fastboot:flashing lock": None,
+}
 
 
 class Bridge:
     def __init__(self, runner: Runner) -> None:
         self._runner = runner
 
-    def execute(self, command: list[str], timeout: float = 120.0) -> RunOutput:
-        """Validate against the allowlist, then run. Raises CommandDenied if
-        the command isn't explicitly permitted."""
-        allowlist.validate(command)  # raises on anything not permitted
-        return self._runner.run(command, timeout=timeout)
+    def execute(self, command: list[str], timeout=_AUTO) -> RunOutput:
+        """Validate against the allowlist, then run. Raises CommandDenied if the
+        command isn't permitted. With the default (``_AUTO``) timeout, a per-key
+        timeout is used so destructive, slow operations aren't killed mid-write."""
+        key = allowlist.validate(command)  # raises on anything not permitted
+        effective = _TIMEOUTS.get(key, _DEFAULT_TIMEOUT) if timeout is _AUTO else timeout
+        return self._runner.run(command, timeout=effective)
 
     # --- discovery -------------------------------------------------------
     def list_devices(self) -> list[Device]:

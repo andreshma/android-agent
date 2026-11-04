@@ -1,0 +1,38 @@
+{
+  "project": "android-agent",
+  "date": "2026-11-04",
+  "tier": "MVP",
+  "gate": "advisory-amber",
+  "score": 68,
+  "rag": "amber",
+  "commit_audited": "c6ac962",
+  "report": "report-android-agent-2026-11-04.md",
+  "sbom": "audits/sbom/android-agent-2026-11-04.cdx.json",
+  "blocking_count": 0,
+  "high_count": 5,
+  "deterministic": {
+    "ruff": {"issues": 0},
+    "mypy": {"errors": 0},
+    "semgrep": {"findings": 5},
+    "bandit": {"notes": 110, "note": "108 are B101 in tests"},
+    "trivy": {"vulns": 0, "secrets": 0, "misconfig": 2},
+    "jscpd": {"duplication_pct": 0.63},
+    "lizard": {"avg_ccn": 2.01, "max_ccn": 9},
+    "tests": {"passed": 62, "failed": 0, "coverage_pct": 72},
+    "not_run": ["gitleaks", "trufflehog", "syft", "grype", "osv-scanner", "pip-audit", "sonarqube"],
+    "errored": ["checkov"]
+  },
+  "counts": {"critical": 0, "high": 5, "medium": 9, "low": 8, "info": 2},
+  "remediation": {
+    "fixed": ["H1", "H2", "H3", "H4", "H5", "M1", "M2", "M7", "L1", "L6"],
+    "partially_fixed": ["M4", "M5"],
+    "open": ["M3", "M6", "M8", "M9", "L2", "L3", "L4", "L5", "L7", "L8"]
+  },
+  "top_findings": [
+    "H1 allowlist metachar filter missed $(), backticks, &, >, newline (device-side shell injection)",
+    "H2 with_serial honored supplied -s (wrong-device targeting)",
+    "H3 shell cmd package blanket allowlist at risk none (uninstall)",
+    "H4/H5 flash continued after failed step; fixed 120s timeout killed fastboot flash",
+    "M1 --runner typo silently fell back to unsandboxed LocalRunner; env var ignored"
+  ]
+}

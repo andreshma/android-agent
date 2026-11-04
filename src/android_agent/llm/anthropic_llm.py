@@ -3,8 +3,8 @@
 More capable reasoning for planning flashes/upgrades. Optional dependency:
 install with ``pip install android-agent[anthropic]`` and set ANTHROPIC_API_KEY.
 
-Like the Ollama backend, the transport is wired but the prompt->Plan parsing is
-a marked stub so structured output is a deliberate contribution.
+It returns a ``Plan`` through a forced ``emit_plan`` tool call whose input
+schema is the shared ``schema.PLAN_SCHEMA``.
 """
 
 from __future__ import annotations

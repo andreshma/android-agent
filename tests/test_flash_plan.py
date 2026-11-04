@@ -32,24 +32,36 @@ def test_order_partitions_appends_unknown_alphabetically():
     assert [p for p, _ in ordered] == ["boot", "alpha", "zebra"]
 
 
-def test_build_rom_flash_plan_verified_and_ordered():
+def test_build_rom_flash_plan_verified_and_ordered(tmp_path):
+    boot = tmp_path / "b.img"
+    system = tmp_path / "s.img"
+    boot.write_bytes(b"x")
+    system.write_bytes(b"x")
     cap = FlashCapability(_FakeBridge("(bootloader) product: redfin\n"))
     plan = cap.build_rom_flash_plan(
-        _fastboot_device(), "redfin", {"system": "s.img", "boot": "b.img"}
+        _fastboot_device(), "redfin", {"system": str(system), "boot": str(boot)}
     )
     assert plan.mission is Mission.FLASH
     assert plan.max_risk is RiskLevel.HIGH
     # boot before system, plus a final reboot step
-    humans = [s.command for s in plan.steps]
-    assert humans[0][-2:] == ["boot", "b.img"]
-    assert humans[1][-2:] == ["system", "s.img"]
+    cmds = [s.command for s in plan.steps]
+    assert cmds[0][-2:] == ["boot", str(boot)]
+    assert cmds[1][-2:] == ["system", str(system)]
     assert plan.steps[-1].command[-1] == "reboot"
 
 
-def test_build_rom_flash_plan_refuses_on_mismatch():
+def test_build_rom_flash_plan_refuses_on_mismatch(tmp_path):
+    img = tmp_path / "b.img"
+    img.write_bytes(b"x")
     cap = FlashCapability(_FakeBridge("(bootloader) product: bramble\n"))
     with pytest.raises(FlashTargetMismatch):
-        cap.build_rom_flash_plan(_fastboot_device(), "redfin", {"boot": "b.img"})
+        cap.build_rom_flash_plan(_fastboot_device(), "redfin", {"boot": str(img)})
+
+
+def test_build_rom_flash_plan_missing_image(tmp_path):
+    cap = FlashCapability(_FakeBridge("(bootloader) product: redfin\n"))
+    with pytest.raises(FileNotFoundError):
+        cap.build_rom_flash_plan(_fastboot_device(), "redfin", {"boot": "nope.img"})
 
 
 def test_flash_step_rejects_option_like_partition():
