@@ -20,6 +20,13 @@ want to install LineageOS", "which apps are spying on me?") and the technical
 > **not** help bypass lock screens, Factory Reset Protection (FRP), carrier
 > locks, or the security of a device you don't own. That is out of scope by
 > design, and the code refuses it.
+>
+> ⚠️ **Risk.** Flashing and unlocking can erase all data, brick the device, and
+> void its warranty. You run every action on your own responsibility — read the
+> **[DISCLAIMER](DISCLAIMER.md)** before using the tool.
+
+📖 **New here? Start with the [User Manual](docs/USAGE.md)** — dependencies,
+device setup, every command, and the full flashing workflow.
 
 ## Contents
 
@@ -223,6 +230,8 @@ issue tracker.
 
 ## Documentation
 
+- [User Manual](docs/USAGE.md) — dependencies, device setup, every flow, flashing
+- [Disclaimer & liability waiver](DISCLAIMER.md) — read before use
 - [Architecture](docs/ARCHITECTURE.md) — layers, C4 views, patterns, invariants
 - [Diagrams](docs/DIAGRAMS.md) — context, layers, sequence, trust boundaries
 - [Architecture Decision Records](docs/adr/README.md)
