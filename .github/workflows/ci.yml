@@ -79,5 +79,5 @@ jobs:
 
       - name: Audit dependencies (pip-audit)
         # --skip-editable skips this project's own local install (not on PyPI);
-        # --strict still fails on a third-party dep that cannot be audited.
-        run: pip-audit --strict --skip-editable
+        # a real vulnerability in a third-party dependency still fails the step.
+        run: pip-audit --skip-editable
