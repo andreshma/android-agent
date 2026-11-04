@@ -94,6 +94,7 @@ tested (19 tests). Working today:
 - ✅ `flash-rom` — verified, ordered, guarded ROM-flash walkthrough built on the
   target check
 - ✅ `log` — review the recorded action trail
+- ✅ optimize surfaces top battery-draining apps (`dumpsys batterystats`)
 
 The CLI now has: `devices`, `run <mission>`, `debloat`, `flash-rom`, `log`.
 
@@ -133,6 +134,7 @@ android-agent log -s <SERIAL>
 - [Architecture](docs/ARCHITECTURE.md) — layers, C4 views, patterns, invariants
 - [Architecture Decision Records](docs/adr/README.md)
 - [Threat model](docs/THREAT_MODEL.md) — STRIDE analysis
+- [Testing](docs/TESTING.md) — automated suite + manual on-device checklist
 - [Security policy](SECURITY.md) — scope boundary & how to report issues
 - [Contributing](CONTRIBUTING.md) · [Code of Conduct](CODE_OF_CONDUCT.md) ·
   [Changelog](CHANGELOG.md)

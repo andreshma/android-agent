@@ -51,7 +51,10 @@ class AnthropicLLM(LLM):
             "description": "Return the proposed plan of steps for the operator to confirm.",
             "input_schema": schema.PLAN_SCHEMA,
         }
-        msg = self._client.messages.create(
+        # We build the tool/tool_choice params as plain dicts (they match the
+        # SDK's TypedDicts at runtime); mypy can't see that through the dict, so
+        # the overload match is suppressed here deliberately.
+        msg = self._client.messages.create(  # type: ignore[call-overload]
             model=self.model,
             max_tokens=2048,
             system=SYSTEM_PROMPT,
