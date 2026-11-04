@@ -7,6 +7,12 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Security
+- **Tightened `dumpsys` allowlist**: replaced the blanket `shell:dumpsys` with
+  specific read-only services (`dumpsys package`, `dumpsys batterystats`), so
+  state-changing dumpsys sub-commands (e.g. `deviceidle`) are no longer allowed.
+- **Device-mode guard**: each mission now requires the right connection mode
+  (audit/optimize → adb, flash/unlock → fastboot); mismatches abort with a clear
+  message before anything runs (`orchestrator.require_mode`).
 - **Authoritative risk + plan validation**: proposed plans are re-validated
   against the allowlist and each step's risk is re-derived from its command
   (`allowlist.risk_for`, `orchestrator.annotate_plan_risk`) before the user
@@ -15,6 +21,9 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 - `python -m android_agent` entry point.
+- `uv.lock` for reproducible installs (`uv sync --all-extras`).
+- CLI-level tests (`typer.testing.CliRunner`) covering the consent → confirm →
+  execute flow, mode guard, and consent decline.
 - **Battery drain analysis** in optimize: ranks the top power-consuming apps by
   joining `dumpsys batterystats` estimated power use with a uid→package map
   (`battery.top_power_consumers`), surfaced in the optimize facts.

@@ -25,7 +25,10 @@ _ADB_ALLOWED: dict[str, str] = {
     "get-state": "device connection state",
     "shell:getprop": "read a system property",
     "shell:pm list packages": "list installed packages",
-    "shell:dumpsys": "read a system service's state",
+    # Specific read-only dumpsys services only — NOT a blanket `dumpsys`, since
+    # some services accept state-changing sub-commands (e.g. deviceidle).
+    "shell:dumpsys package": "read package/permission info",
+    "shell:dumpsys batterystats": "read battery usage stats",
     "shell:cmd package": "query package info",
     # --- optimize (reversible) ---
     "shell:pm disable-user": "disable (not remove) a package for the user",
@@ -58,7 +61,8 @@ _RISK: dict[str, RiskLevel] = {
     "adb:get-state": RiskLevel.NONE,
     "adb:shell:getprop": RiskLevel.NONE,
     "adb:shell:pm list packages": RiskLevel.NONE,
-    "adb:shell:dumpsys": RiskLevel.NONE,
+    "adb:shell:dumpsys package": RiskLevel.NONE,
+    "adb:shell:dumpsys batterystats": RiskLevel.NONE,
     "adb:shell:cmd package": RiskLevel.NONE,
     "adb:shell:pm disable-user": RiskLevel.LOW,
     "adb:shell:pm enable": RiskLevel.LOW,

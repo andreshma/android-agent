@@ -38,8 +38,19 @@ Search for `TODO(contributors)`:
 ```bash
 pip install -e ".[dev,anthropic]"
 ruff check .
+mypy src
 pytest
 ```
+
+For a reproducible environment, use the committed lockfile with
+[uv](https://docs.astral.sh/uv/):
+
+```bash
+uv sync --all-extras   # installs the exact versions from uv.lock
+```
+
+`pyproject.toml` stays the source of truth for dependency ranges; `uv.lock` pins
+the exact resolved versions. Regenerate it with `uv lock` after changing deps.
 
 ## Commit style
 

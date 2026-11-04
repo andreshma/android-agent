@@ -20,7 +20,7 @@ from .capabilities.flash import FlashTargetMismatch
 from .config import Config
 from .llm.factory import make_llm
 from .models import Mission, Plan, RiskLevel
-from .orchestrator import Orchestrator
+from .orchestrator import DeviceModeError, Orchestrator, require_mode
 
 app = typer.Typer(
     help="LLM-driven agent to audit, optimize, flash and unlock YOUR OWN Android device.",
@@ -93,11 +93,8 @@ def run(
     bridge = _build_bridge(cfg)
 
     # --- resolve the target device ---
-    device = bridge.find_device(serial)
-    if device is None:
-        console.print(f"[red]Device {serial} not found.[/] Run 'android-agent devices' to list.")
-        raise typer.Abort()
-
+    device = _resolve_or_abort(bridge, serial)
+    _require_mode_or_abort(device, mission)
     device = _consent(device, serial)
 
     # --- phase 1: propose ---
@@ -149,6 +146,14 @@ def _resolve_or_abort(bridge: Bridge, serial: str):
     return device
 
 
+def _require_mode_or_abort(device, mission: Mission) -> None:
+    try:
+        require_mode(device, mission)
+    except DeviceModeError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Abort() from exc
+
+
 @app.command()
 def debloat(
     serial: str = typer.Option(..., "--serial", "-s", help="Target device serial."),
@@ -161,6 +166,7 @@ def debloat(
     cfg.runner = runner
     bridge = _build_bridge(cfg)
     device = _resolve_or_abort(bridge, serial)
+    _require_mode_or_abort(device, Mission.OPTIMIZE)
     device = _consent(device, serial)
 
     orch = Orchestrator(None, bridge, log=ActionLog() if log else None)
@@ -199,6 +205,7 @@ def flash_rom(
     cfg.runner = runner
     bridge = _build_bridge(cfg)
     device = _resolve_or_abort(bridge, serial)
+    _require_mode_or_abort(device, Mission.FLASH)
     device = _consent(device, serial)
 
     orch = Orchestrator(None, bridge, log=ActionLog() if log else None)
