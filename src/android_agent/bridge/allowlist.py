@@ -35,6 +35,7 @@ _ADB_ALLOWED: dict[str, str] = {
     "get-state": "device connection state",
     "shell:getprop": "read a system property",
     "shell:pm list packages": "list installed packages",
+    "shell:pm list permissions": "list permission definitions (read-only)",
     # Specific read-only dumpsys services only — NOT a blanket `dumpsys`.
     "shell:dumpsys package": "read package/permission info",
     "shell:dumpsys batterystats": "read battery usage stats",
@@ -66,6 +67,7 @@ _RISK: dict[str, RiskLevel] = {
     "adb:get-state": RiskLevel.NONE,
     "adb:shell:getprop": RiskLevel.NONE,
     "adb:shell:pm list packages": RiskLevel.NONE,
+    "adb:shell:pm list permissions": RiskLevel.NONE,
     "adb:shell:dumpsys package": RiskLevel.NONE,
     "adb:shell:dumpsys batterystats": RiskLevel.NONE,
     "adb:shell:cmd package list packages": RiskLevel.NONE,
@@ -107,6 +109,7 @@ _ARGS: dict[str, Callable[[list[str]], bool]] = {
     "adb:get-state": lambda t: t == [],
     "adb:shell:getprop": lambda t: len(t) <= 1 and all(_PROP.fullmatch(x) for x in t),
     "adb:shell:pm list packages": lambda t: all(x in {"-3", "-d", "-e", "-s", "-U"} for x in t),
+    "adb:shell:pm list permissions": lambda t: all(x in {"-g", "-f", "-d", "-u", "-s"} for x in t),
     "adb:shell:dumpsys package": lambda t: len(t) == 1 and bool(_PKG.fullmatch(t[0])),
     "adb:shell:dumpsys batterystats": lambda t: t == [],
     "adb:shell:cmd package list packages": lambda t: all(x in {"-U", "-3", "-d", "-e"} for x in t),

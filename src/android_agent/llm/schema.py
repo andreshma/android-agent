@@ -36,8 +36,10 @@ PLAN_SCHEMA: dict = {
                         "type": "array",
                         "items": {"type": "string"},
                         "description": (
-                            "argv for adb/fastboot WITHOUT a '-s <serial>' selector; "
-                            "the agent injects the target device itself."
+                            "Full argv for ONE adb/fastboot command. The first element MUST "
+                            'be "adb" or "fastboot" (e.g. '
+                            '["adb","shell","pm","list","packages"]). Do NOT include a '
+                            "'-s <serial>' selector — the agent injects the target device."
                         ),
                     },
                     "risk": {"type": "string", "enum": ["none", "low", "high"]},

@@ -6,6 +6,15 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- **Live LLM validation hardening.** Validating the `run` missions against a
+  real device (emulator) with both Ollama and Claude surfaced two rough edges,
+  now fixed: the audit mission allowlists read-only `pm list permissions`
+  (`-g/-f/-d/-u/-s`, risk NONE) — a command real models naturally propose for a
+  permission audit — and the plan schema now states each `command` MUST start
+  with `adb`/`fastboot` (a smaller model had omitted the prefix). The security
+  boundary is unchanged otherwise: the additions are read-only and on-mission.
+
 ### Added
 - **Examples Cookbook** ([docs/EXAMPLES.md](docs/EXAMPLES.md)): copy-paste
   examples covering every feature — install, tool paths, both backends, each
