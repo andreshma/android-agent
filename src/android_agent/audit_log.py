@@ -1,4 +1,4 @@
-"""Append-only action log.
+"""Append-only, hash-chained action log.
 
 Records what the agent *proposed* and what it actually *executed*, as one JSON
 object per line (JSONL). This closes the repudiation gap in the threat model:
@@ -7,6 +7,12 @@ whether they succeeded.
 
 Design notes:
   • Append-only JSONL — easy to tail, grep, and ship elsewhere; never rewritten.
+  • Tamper-evident — each entry carries ``prev`` (the previous entry's hash) and
+    its own ``hash`` over (prev + the entry's content). Deleting or editing a
+    middle entry breaks the chain, which ``verify()`` detects (audit L4). This
+    is integrity evidence, not secrecy: anyone who can rewrite the whole file
+    can recompute the chain, so ship it somewhere append-only for real
+    non-repudiation.
   • Best-effort — logging must never crash or block a device operation, so every
     write is wrapped and failures are swallowed (the run is what matters).
   • Default location is the per-user log dir (platformdirs), so it works the
@@ -15,6 +21,7 @@ Design notes:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from collections.abc import Iterator
@@ -25,6 +32,9 @@ from platformdirs import user_log_dir
 
 from .models import Plan, StepResult
 
+# The chain's root: the ``prev`` of the very first entry.
+GENESIS_HASH = "0" * 64
+
 
 def default_log_path() -> Path:
     override = os.environ.get("ANDROID_AGENT_LOG")
@@ -33,16 +43,48 @@ def default_log_path() -> Path:
     return Path(user_log_dir("android-agent", appauthor=False)) / "actions.jsonl"
 
 
+def _entry_hash(prev: str, event: dict) -> str:
+    """sha256 over the previous hash plus this entry's content (sans ``hash``)."""
+    material = {k: v for k, v in event.items() if k != "hash"}
+    payload = prev + json.dumps(material, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 class ActionLog:
     def __init__(self, path: Path | None = None) -> None:
         self.path = path or default_log_path()
+        self._last_hash: str | None = None
+
+    def _read_last_hash(self) -> str:
+        """The hash of the last well-formed entry, or GENESIS if none/unreadable."""
+        last = GENESIS_HASH
+        try:
+            with self.path.open(encoding="utf-8") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        obj = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    h = obj.get("hash")
+                    if isinstance(h, str):
+                        last = h
+        except OSError:
+            pass
+        return last
 
     def _write(self, event: dict) -> None:
         event["ts"] = datetime.now(timezone.utc).isoformat()
         try:
+            prev = self._last_hash if self._last_hash is not None else self._read_last_hash()
+            event["prev"] = prev
+            event["hash"] = _entry_hash(prev, event)
             self.path.parent.mkdir(parents=True, exist_ok=True)
             with self.path.open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(event, ensure_ascii=False) + "\n")
+            self._last_hash = event["hash"]
         except OSError:
             # Best-effort: never let logging break a device operation.
             pass
@@ -55,6 +97,21 @@ class ActionLog:
                 "mission": plan.mission.value,
                 "summary": plan.summary,
                 "steps": len(plan.steps),
+                "max_risk": plan.max_risk.value,
+            }
+        )
+
+    def consent_recorded(self, serial: str) -> None:
+        """Record that the operator passed the ownership/consent gate."""
+        self._write({"event": "consent_recorded", "serial": serial})
+
+    def plan_confirmed(self, serial: str, plan: Plan) -> None:
+        """Record that the operator confirmed a plan and it is about to run."""
+        self._write(
+            {
+                "event": "plan_confirmed",
+                "serial": serial,
+                "mission": plan.mission.value,
                 "max_risk": plan.max_risk.value,
             }
         )
@@ -91,3 +148,28 @@ class ActionLog:
                     continue
                 if serial is None or event.get("serial") == serial:
                     yield event
+
+    def verify(self) -> bool:
+        """Return True iff the hash chain is intact from genesis to the tail.
+
+        A missing file is a valid (empty) chain. Any reordered, edited or
+        removed entry breaks the ``prev``/``hash`` linkage and returns False.
+        """
+        prev = GENESIS_HASH
+        if not self.path.exists():
+            return True
+        with self.path.open(encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    return False
+                if event.get("prev") != prev:
+                    return False
+                if event.get("hash") != _entry_hash(prev, event):
+                    return False
+                prev = event["hash"]
+        return True

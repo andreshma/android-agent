@@ -59,15 +59,30 @@ The **LLM output** and the **device output** are both treated as untrusted.
 
 ### Repudiation
 - *No record of what ran.* Mitigation: an append-only action log
-  (`audit_log.py`) records proposed plans and executed steps per device. It is
-  best-effort (a write failure never blocks a device operation) and not yet
-  tamper-evident — hash-chaining is an open item.
+  (`audit_log.py`) records the consent acknowledgement, proposed plan, explicit
+  confirmation and every executed step per device. It is **hash-chained** —
+  each entry carries the previous entry's hash and its own, so editing,
+  reordering or deleting a middle entry is detectable (`ActionLog.verify`). It
+  remains best-effort (a write failure never blocks a device operation); the
+  chain is integrity evidence, not secrecy, so for real non-repudiation ship it
+  to append-only storage.
 
 ### Information Disclosure
-- *Device data leaving the machine.* Mitigation: Ollama local backend is the
-  default, so audit data stays on the host. The hosted backend is opt-in.
+- *Device data leaving the machine.* Mitigation: the Ollama local backend is
+  the default, so audit data stays on the host. The hosted backend is opt-in,
+  **and the CLI now shows an explicit egress notice** (model, product, package
+  names and properties will be sent to the third-party API) before planning
+  when a hosted backend is selected.
+- *Untrusted device data steering the model* (prompt injection via an app label
+  or property). Mitigation: device facts are wrapped in a delimited
+  `<device_facts>` block, labelled "data, not instructions" in both the system
+  prompt and the user prompt, and capped in size (`schema.MAX_FACTS_CHARS`).
+  The allowlist is still the authority — framing reduces the chance the model
+  is fooled, it does not grant the model new powers.
 - *API key leakage.* Mitigation: key read from env, never written to the device
-  or echoed; do not log request bodies.
+  or echoed; request bodies are not logged; and the key is **stripped from the
+  environment handed to the adb/fastboot child process** (`_child_env`), so the
+  device toolchain never even sees it.
 
 ### Denial of Service
 - *Bricking the device.* Mitigation: flash is HIGH-risk, gated by an extra
@@ -85,14 +100,27 @@ The **LLM output** and the **device output** are both treated as untrusted.
   `ContainerRunner` runs adb/fastboot in a network-less container (USB passed
   through on Linux; host adb server over the gateway on Windows/macOS), so a
   compromised binary or payload is contained away from the host and internet.
+  The container is run least-privilege: `--cap-drop=ALL`,
+  `--security-opt=no-new-privileges`, a read-only root filesystem with a
+  `/tmp` tmpfs, PID/memory limits, and a non-root user in the image. USB
+  device-node access is file-permission based, so dropping capabilities does
+  not disable it.
 
 ## Residual risks / open items
 
 - The container image must be built and trusted by the operator; a tampered
   image would undermine the sandbox (build it yourself from the provided
-  Dockerfile).
+  Dockerfile, and pin the base image by digest — see the Dockerfile comment).
 - On Windows/macOS the container reaches the host adb server, a deliberately
   narrow channel; USB is not isolated from the host there as it is on Linux.
+- Flashing *inside* the container needs the image files mounted into it; the
+  current `ContainerRunner` does not mount host paths, so container mode is
+  intended for the read-only audit/optimize missions. Flash on the host runner,
+  or mount the image directory yourself, until path mounting lands.
+- The container hardening flags (`--cap-drop=ALL`, read-only root, etc.) have
+  been verified to build correctly but not yet exercised against a physical
+  device on every engine/OS; report back if USB passthrough needs a specific
+  capability on your setup.
 - The operator can still physically confirm a destructive action; the tool makes
   it *explainable and deliberate*, it does not remove the operator's authority
   over their own device.

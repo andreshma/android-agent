@@ -4,7 +4,9 @@ fake bridge, so the command wiring itself is covered (not just the pieces)."""
 from typer.testing import CliRunner
 
 from android_agent import cli
+from android_agent.audit_log import ActionLog
 from android_agent.bridge.sandbox import RunOutput
+from android_agent.config import Config
 from android_agent.models import Device, DeviceMode
 
 runner = CliRunner()
@@ -18,6 +20,9 @@ class _FakeBridge:
 
     def find_device(self, serial: str):
         return self._device
+
+    def read_property(self, device, prop: str):
+        return {"ro.product.model": "FakePixel", "ro.build.version.release": "14"}.get(prop)
 
     def execute(self, command, timeout: float = 120.0) -> RunOutput:
         joined = " ".join(command)
@@ -38,6 +43,31 @@ def _patch_bridge(monkeypatch, device):
     monkeypatch.setattr(cli, "_build_bridge", lambda cfg: _FakeBridge(device))
 
 
+class _FakeLLM:
+    """A stand-in LLM that returns a fixed, allowlisted audit plan."""
+
+    name = "fake"
+
+    def propose_plan(self, *, mission, request, device_facts):
+        from android_agent.models import Plan, RiskLevel, Step
+
+        return Plan(
+            mission=mission,
+            summary="Read one system property.",
+            steps=[
+                Step(
+                    capability="audit",
+                    human="Read the Android version",
+                    command=["adb", "shell", "getprop", "ro.build.version.release"],
+                    risk=RiskLevel.NONE,
+                )
+            ],
+        )
+
+    def explain(self, text):  # pragma: no cover - not exercised here
+        return text
+
+
 def test_devices_none(monkeypatch):
     _patch_bridge(monkeypatch, None)
     # list_devices isn't on the fake; devices command calls it, so give it one.
@@ -45,6 +75,40 @@ def test_devices_none(monkeypatch):
     result = runner.invoke(cli.app, ["devices"])
     assert result.exit_code == 0
     assert "No devices detected" in result.stdout
+
+
+def test_devices_lists_found(monkeypatch):
+    device = Device(serial="S1", mode=DeviceMode.ADB, model="Pixel_7")
+    _patch_bridge(monkeypatch, device)
+    monkeypatch.setattr(_FakeBridge, "list_devices", lambda self: [device], raising=False)
+    result = runner.invoke(cli.app, ["devices"])
+    assert result.exit_code == 0
+    assert "S1" in result.stdout
+    assert "Pixel_7" in result.stdout
+
+
+def test_log_renders_recorded_entries(monkeypatch, tmp_path):
+    p = tmp_path / "actions.jsonl"
+    monkeypatch.setenv("ANDROID_AGENT_LOG", str(p))
+    from android_agent.audit_log import ActionLog
+    from android_agent.models import Mission, Plan, RiskLevel, Step, StepResult
+
+    log = ActionLog(path=p)
+    plan = Plan(
+        mission=Mission.OPTIMIZE,
+        summary="x",
+        steps=[Step(capability="optimize", human="h", command=["adb", "shell", "x"],
+                    risk=RiskLevel.LOW)],
+    )
+    log.consent_recorded("S1")
+    log.plan_proposed("S1", plan)
+    log.plan_confirmed("S1", plan)
+    log.step_executed("S1", StepResult(step=plan.steps[0], ok=True))
+
+    result = runner.invoke(cli.app, ["log", "-s", "S1"])
+    assert result.exit_code == 0
+    assert "Action log" in result.stdout
+    assert "optimize" in result.stdout
 
 
 def test_debloat_happy_path(monkeypatch):
@@ -82,3 +146,74 @@ def test_log_empty(monkeypatch, tmp_path):
     result = runner.invoke(cli.app, ["log"])
     assert result.exit_code == 0
     assert "No logged actions yet" in result.stdout
+
+
+def test_egress_disclosure_shown_for_hosted_backend(capsys):
+    cli._disclose_egress(Config(llm_backend="anthropic"))
+    out = capsys.readouterr().out
+    assert "Data leaves your machine" in out
+    assert "anthropic" in out
+
+
+def test_egress_disclosure_silent_for_local_backend(capsys):
+    cli._disclose_egress(Config(llm_backend="ollama"))
+    assert capsys.readouterr().out.strip() == ""
+
+
+def test_run_audit_happy_path(monkeypatch):
+    device = Device(serial="S1", mode=DeviceMode.ADB)
+    _patch_bridge(monkeypatch, device)
+    monkeypatch.setattr(cli, "make_llm", lambda backend, **kw: _FakeLLM())
+    result = runner.invoke(
+        cli.app, ["run", "audit", "check version", "-s", "S1", "--no-log"], input="y\ny\n"
+    )
+    assert result.exit_code == 0, result.stdout
+    assert "Read the Android version" in result.stdout
+    assert "ok" in result.stdout
+
+
+def test_run_rejects_offmission_plan(monkeypatch):
+    # An audit plan carrying a flash step must be rejected at propose time.
+    device = Device(serial="S1", mode=DeviceMode.ADB)
+    _patch_bridge(monkeypatch, device)
+
+    class _BadLLM(_FakeLLM):
+        def propose_plan(self, *, mission, request, device_facts):
+            from android_agent.models import Plan, RiskLevel, Step
+
+            return Plan(
+                mission=mission,
+                summary="sneaky",
+                steps=[
+                    Step(
+                        capability="audit",
+                        human="Wipe it",
+                        command=["fastboot", "flash", "system", "evil.img"],
+                        risk=RiskLevel.NONE,
+                    )
+                ],
+            )
+
+    monkeypatch.setattr(cli, "make_llm", lambda backend, **kw: _BadLLM())
+    result = runner.invoke(
+        cli.app, ["run", "audit", "do it", "-s", "S1", "--no-log"], input="y\n"
+    )
+    assert result.exit_code != 0
+    assert "Rejected" in result.stdout
+
+
+def test_debloat_logs_full_trail(monkeypatch, tmp_path):
+    # consent -> plan_proposed -> plan_confirmed -> step_executed, hash-chained.
+    monkeypatch.setenv("ANDROID_AGENT_LOG", str(tmp_path / "actions.jsonl"))
+    device = Device(serial="S1", mode=DeviceMode.ADB)
+    _patch_bridge(monkeypatch, device)
+    result = runner.invoke(cli.app, ["debloat", "-s", "S1"], input="y\ny\n")
+    assert result.exit_code == 0
+
+    log = ActionLog(path=tmp_path / "actions.jsonl")
+    events = [e["event"] for e in log.read_entries()]
+    assert "consent_recorded" in events
+    assert "plan_proposed" in events
+    assert "plan_confirmed" in events
+    assert "step_executed" in events
+    assert log.verify() is True

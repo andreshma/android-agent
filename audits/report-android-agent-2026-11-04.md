@@ -33,7 +33,16 @@ report. Summary:
 | M5 | "required backup step" documented but absent; `adb backup` arg-free | **Partially fixed** — `adb backup` removed from the allowlist; backup remains a documented precondition |
 | M7 | Security docs claimed controls the code didn't provide | **Fixed** — docs reworded to match verified behaviour |
 | L1, L6 | `.coverage` tracked; stale counts/docstrings | **Fixed** |
-| M3, M6, M8, M9, L2–L5, L7, L8 | see below | **Open** (tracked) |
+| M3 | Container sandbox weaker than documented | **Fixed** — cap-drop ALL, no-new-privileges, read-only root + tmpfs, PID/mem limits, non-root user (container flash mounting still open) |
+| M6 | Untrusted device data in prompt; hosted egress undisclosed | **Fixed** — delimited `<device_facts>` block + size cap + egress notice |
+| M8 | Security-path test gaps; no coverage tooling | **Fixed** — `pytest-cov` 80% floor + LLM adapter/sandbox/log/CLI tests |
+| M9 | CI/supply-chain gaps | **Fixed** — SHA-pinned actions, `uv --frozen` job, pip-audit, Dependabot cooldown |
+| L2 | Tracebacks could leak key; model/net errors unhandled | **Fixed** — locals off + typed error handling |
+| L3 | Child env inherits API key; Windows CWD `which` | **Fixed** — scrubbed child env + CWD-shadow guard |
+| L4 | Log not tamper-evident; consent/confirm/debloat/flash unlogged | **Fixed** — hash chain + full trail |
+| L5 | No TTY/typed-yes check on destructive confirm | **Fixed** — HIGH gate requires literal `yes` |
+| L7 | `fastboot devices` loose parsing; truncation unchecked | **Fixed** — strict device lines + `max_tokens` rejection |
+| L8 | `anthropic` extra untested; adapter 0% coverage | **Fixed** — adapter tests + installed in CI |
 
 ---
 
@@ -127,7 +136,11 @@ user not to power-cycle.
 - **M3. Container sandbox weaker than documented `[JUDG][VERIFY]`.** `--network
   none` is Linux-only; no `--cap-drop`/`no-new-privileges`/`--read-only`/limits;
   image runs as root; `:latest` and un-pinned base; host image dir not mounted,
-  so flash in container mode likely can't find the file on Windows/macOS. *Open.*
+  so flash in container mode likely can't find the file on Windows/macOS.
+  *Fixed* — hardening flags (cap-drop ALL, no-new-privileges, read-only root +
+  `/tmp` tmpfs, PID/memory limits) and a non-root user added; base-image digest
+  pinning documented. Host image mounting for in-container flash remains open
+  (container mode is for the read-only missions meanwhile).
 - **M4. LLM plans validated for shape, not meaning `[DET][JUDG]`.** Mission
   override via payload; no per-step mission scope; `human` text unrelated to the
   command; protected-package/option checks not applied to LLM steps. *Partially
@@ -138,30 +151,44 @@ user not to power-cycle.
 - **M6. Untrusted device data in prompt; hosted-LLM egress undisclosed `[JUDG]`.**
   `device_facts` dumped into the prompt without "data not instructions" framing;
   serial/app inventory leave the machine with `--llm anthropic` and the consent
-  text doesn't mention it. *Open* (local-first mitigates).
+  text doesn't mention it. *Fixed* — facts wrapped in a delimited, size-capped
+  `<device_facts>` block labelled untrusted in both prompts, and an explicit
+  egress notice is shown before planning on a hosted backend.
 - **M7. Security docs claimed controls the code didn't provide `[DET]`.** *Fixed.*
 - **M8. Security-path test gaps; no coverage tooling `[DET]`.** `Bridge`,
   `propose`, both LLM adapters, HIGH-risk confirm untested; no `pytest-cov`
-  threshold. *Open* (CLI/plan tests added; threshold still to wire).
+  threshold. *Fixed* — `pytest-cov` with an 80% `fail_under` floor; both LLM
+  adapters, the sandbox hardening/env-scrub, the hash-chained log and the
+  `run`/`devices`/`log` CLI paths are now covered (106 tests).
 - **M9. CI/supply-chain gaps `[DET]`.** Actions pinned by mutable tag; no
-  Dependabot cooldown; CI ignores `uv.lock`; no SAST/SCA/secret/SBOM job. *Open.*
+  Dependabot cooldown; CI ignores `uv.lock`; no SAST/SCA/secret/SBOM job.
+  *Fixed* — actions SHA-pinned, a `uv sync --frozen` job validates the lockfile,
+  a `pip-audit` SCA job runs, and Dependabot has a release cooldown. (ruff's `S`
+  rules remain the SAST layer; a dedicated SBOM-diff job is a future nicety.)
 
 ### LOW
 - **L1.** `.coverage` tracked in git. *Fixed* (removed + gitignored).
 - **L2.** Default Typer `pretty_exceptions_show_locals` could print an API key;
-  model/network errors unhandled. *Open.*
+  model/network errors unhandled. *Fixed* — locals already off; unreachable
+  backend / malformed / truncated output now abort with a clear message.
 - **L3.** Child processes inherit full env (incl. API key); Windows `shutil.which`
-  searches CWD on Python <3.12. *Open.*
+  searches CWD on Python <3.12. *Fixed* — toolchain env scrubbed of LLM keys;
+  a CWD-resolved tool is rejected on Windows.
 - **L4.** Action log best-effort, not tamper-evident; plans for debloat/flash-rom
-  not logged; consent/confirm not recorded. *Open.*
+  not logged; consent/confirm not recorded. *Fixed* — hash-chained entries +
+  `verify()`; consent, confirm and debloat/flash-rom plans are now logged.
 - **L5.** `typer.confirm` has no TTY check (`yes |` auto-answers); "Type yes"
-  accepts `y`. *Open.*
+  accepts `y`. *Fixed* — HIGH-risk gate requires the literal word `yes`, which
+  a piped `yes |` (sending `y`) cannot satisfy.
 - **L6.** Stale docs/counts (test count, "stub" docstrings, ADR 0005 wording).
   *Fixed.*
 - **L7.** `parse_fastboot_devices` treats any non-empty line's first token as a
-  serial; prompt/`max_tokens` truncation unchecked. *Open.*
+  serial; prompt/`max_tokens` truncation unchecked. *Fixed* — only lines whose
+  second field is `fastboot` are devices; a `max_tokens`-truncated hosted plan
+  is rejected rather than parsed.
 - **L8.** `anthropic` extra unverified against the locked SDK; adapter 0%
-  coverage; never installed in CI. *Open.*
+  coverage; never installed in CI. *Fixed* — adapter now has unit tests and the
+  extra is installed in the CI test matrix.
 
 ### INFO
 - **I1.** Bandit B101 (108) is test-only noise; B404/B603 in `sandbox.py` are the

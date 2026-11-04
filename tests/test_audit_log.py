@@ -82,3 +82,53 @@ def test_read_entries_skips_malformed_lines(tmp_path):
 
 def test_read_entries_missing_file(tmp_path):
     assert list(ActionLog(path=tmp_path / "nope.jsonl").read_entries()) == []
+
+
+def test_chain_verifies_intact(tmp_path):
+    log = ActionLog(path=tmp_path / "a.jsonl")
+    log.consent_recorded("S")
+    log.plan_proposed("S", _plan())
+    log.plan_confirmed("S", _plan())
+    log.step_executed("S", StepResult(step=_plan().steps[0], ok=True))
+    assert log.verify() is True
+    # every entry links to the previous one's hash
+    entries = list(log.read_entries())
+    assert entries[0]["prev"] == "0" * 64
+    assert all("hash" in e for e in entries)
+    assert entries[1]["prev"] == entries[0]["hash"]
+
+
+def test_chain_detects_tampering(tmp_path):
+    p = tmp_path / "a.jsonl"
+    log = ActionLog(path=p)
+    log.plan_proposed("S", _plan())
+    log.step_executed("S", StepResult(step=_plan().steps[0], ok=True))
+    assert log.verify() is True
+
+    # Edit a field of the first entry without recomputing the chain.
+    lines = p.read_text(encoding="utf-8").splitlines()
+    first = json.loads(lines[0])
+    first["serial"] = "TAMPERED"
+    lines[0] = json.dumps(first)
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    assert ActionLog(path=p).verify() is False
+
+
+def test_chain_detects_deletion(tmp_path):
+    p = tmp_path / "a.jsonl"
+    log = ActionLog(path=p)
+    log.plan_proposed("S", _plan())
+    log.plan_proposed("S", _plan())
+    log.step_executed("S", StepResult(step=_plan().steps[0], ok=True))
+
+    # Remove the middle entry: the chain's prev-links no longer line up.
+    lines = p.read_text(encoding="utf-8").splitlines()
+    del lines[1]
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    assert ActionLog(path=p).verify() is False
+
+
+def test_verify_empty_log_is_valid(tmp_path):
+    assert ActionLog(path=tmp_path / "none.jsonl").verify() is True

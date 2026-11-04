@@ -1,6 +1,7 @@
 """ContainerRunner command construction is pure, so test it per-OS."""
 
-from android_agent.bridge.sandbox import ContainerRunner, RunOutput
+from android_agent.bridge import sandbox
+from android_agent.bridge.sandbox import ContainerRunner, RunOutput, _child_env
 
 
 def test_build_command_linux_usb_passthrough_no_network():
@@ -31,6 +32,52 @@ def test_build_command_windows_fastboot_not_redirected():
     cmd = runner.build_command(["fastboot", "devices"], engine="docker")
     i = cmd.index("fastboot")
     assert cmd[i:] == ["fastboot", "devices"]
+
+
+def test_build_command_applies_hardening_flags():
+    runner = ContainerRunner(image="img", platform="linux")
+    cmd = runner.build_command(["adb", "devices"], engine="docker")
+    # Least-privilege defaults are present on every run (audit M3).
+    assert "--security-opt=no-new-privileges" in cmd
+    assert "--cap-drop=ALL" in cmd
+    assert "--read-only" in cmd
+    assert "--tmpfs=/tmp" in cmd
+    assert "--pids-limit=512" in cmd
+    # hardening comes before the image, the inner command after it
+    assert cmd.index("--cap-drop=ALL") < cmd.index("img")
+
+
+def test_hardening_present_on_windows_too():
+    runner = ContainerRunner(image="img", platform="win32")
+    cmd = runner.build_command(["adb", "devices"], engine="docker")
+    assert "--cap-drop=ALL" in cmd
+    assert "--security-opt=no-new-privileges" in cmd
+
+
+def test_child_env_strips_llm_api_keys(monkeypatch):
+    # The device toolchain must not inherit the hosted-LLM key (audit L3).
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-secret")
+    monkeypatch.setenv("PATH", "/usr/bin")
+    env = _child_env()
+    assert "ANTHROPIC_API_KEY" not in env
+    assert env.get("PATH") == "/usr/bin"
+
+
+def test_subprocess_runs_with_scrubbed_env(monkeypatch):
+    seen: dict = {}
+
+    class _Proc:
+        returncode, stdout, stderr = 0, "", ""
+
+    def fake_run(argv, **kwargs):
+        seen["env"] = kwargs.get("env")
+        return _Proc()
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-secret")
+    monkeypatch.setattr(sandbox.subprocess, "run", fake_run)
+    sandbox._run_subprocess(["echo", "hi"], timeout=1.0)
+    assert seen["env"] is not None
+    assert "ANTHROPIC_API_KEY" not in seen["env"]
 
 
 def test_run_without_engine_reports_cleanly():

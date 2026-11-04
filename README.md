@@ -142,7 +142,10 @@ Pick either, swap freely — same interface:
   Needs a local Ollama server; set the model with `ANDROID_AGENT_OLLAMA_MODEL`.
 - **Claude API (hosted).** More capable planning. Install the extra
   (`pip install -e ".[anthropic]"`) and set `ANTHROPIC_API_KEY`; select it with
-  `--llm anthropic` or `ANDROID_AGENT_LLM=anthropic`.
+  `--llm anthropic` or `ANDROID_AGENT_LLM=anthropic`. Read-only device facts
+  (model, product, package names, properties) are sent to the hosted API to
+  plan the mission; the CLI shows an explicit notice before it does so. Your
+  API key is never passed to the device toolchain.
 
 ## The container sandbox
 
@@ -153,6 +156,12 @@ internet.
 - **Linux:** USB passthrough (`--device=/dev/bus/usb`), no network.
 - **Windows / macOS:** the container talks to the host's adb server over the
   Docker/Podman gateway (USB can't be passed through directly there).
+
+It runs least-privilege: `--cap-drop=ALL`, `--security-opt=no-new-privileges`, a
+read-only root filesystem with a `/tmp` tmpfs, PID/memory limits, and a non-root
+user in the image. Container mode is aimed at the read-only audit/optimize
+missions; flashing needs the image files mounted in, so run `flash-rom` on the
+`local` runner for now (see [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)).
 
 Build the image once:
 

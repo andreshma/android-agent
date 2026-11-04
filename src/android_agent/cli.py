@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from enum import Enum
 
+import httpx
 import typer
 from rich.console import Console
 from rich.panel import Panel
@@ -21,7 +22,7 @@ from .bridge.device import Bridge
 from .bridge.sandbox import ContainerRunner, LocalRunner
 from .capabilities.flash import FlashTargetMismatch
 from .config import Config
-from .llm.factory import make_llm
+from .llm.factory import is_hosted, make_llm
 from .models import Mission, Plan, RiskLevel
 from .orchestrator import DeviceModeError, Orchestrator, PlanRejected, require_mode
 
@@ -132,11 +133,16 @@ def run(
     # --- resolve the target device ---
     device = _resolve_or_abort(bridge, serial)
     _require_mode_or_abort(device, mission)
-    device = _consent(device, serial)
+    _disclose_egress(cfg)
+    action_log = ActionLog() if log else None
+    device = _consent(device, serial, action_log)
 
     # --- phase 1: propose ---
-    llm_impl = make_llm(cfg.llm_backend, **_llm_kwargs(cfg))
-    action_log = ActionLog() if log else None
+    try:
+        llm_impl = make_llm(cfg.llm_backend, **_llm_kwargs(cfg))
+    except ImportError as exc:
+        console.print(f"[bold red]{exc}[/]")
+        raise typer.Abort() from exc
     orch = Orchestrator(llm_impl, bridge, log=action_log)
     if action_log:
         console.print(f"[dim]Logging actions to {action_log.path}[/]")
@@ -146,16 +152,45 @@ def run(
     except (CommandDenied, PlanRejected) as exc:
         console.print(f"[bold red]Rejected the proposed plan:[/] {exc}")
         raise typer.Abort() from exc
+    except (httpx.HTTPError, ConnectionError) as exc:
+        console.print(
+            f"[bold red]Could not reach the LLM backend ({llm_impl.name}):[/] {exc}\n"
+            "Is the local model server running (Ollama), or the network reachable?"
+        )
+        raise typer.Abort() from exc
+    except (ValueError, RuntimeError) as exc:
+        # Malformed model output, truncation, or 'no emit_plan tool call'.
+        console.print(f"[bold red]The model did not return a usable plan:[/] {exc}")
+        raise typer.Abort() from exc
     _show_plan(plan, drill_down=drill_down)
 
     _confirm_and_run(orch, device, plan)
 
 
-def _consent(device, serial: str):
+def _disclose_egress(cfg: Config) -> None:
+    """Warn the operator when the chosen backend sends device data off-machine."""
+    if is_hosted(cfg.llm_backend):
+        console.print(
+            Panel(
+                "You selected a HOSTED LLM backend "
+                f"([bold]{cfg.llm_backend}[/]). Read-only device facts (model, "
+                "product, installed package names, system properties) will be "
+                "sent to that third-party API to plan this mission. Use the "
+                "default [bold]ollama[/] backend to keep all device data on this "
+                "machine.",
+                title="Data leaves your machine",
+                border_style="red",
+            )
+        )
+
+
+def _consent(device, serial: str, log: ActionLog | None = None):
     """Show the consent gate and mark the device authorized, or abort."""
     console.print(Panel(consent.consent_prompt(), title="Before we start", border_style="red"))
     if not typer.confirm(f"Do you confirm the above for device {serial} and want to continue?"):
         raise typer.Abort()
+    if log:
+        log.consent_recorded(serial)
     return consent.grant(device)
 
 
@@ -168,10 +203,16 @@ def _confirm_and_run(orch: Orchestrator, device, plan: Plan) -> None:
         console.print(
             "[bold red]This plan contains HIGH-risk, irreversible steps (data may be erased).[/]"
         )
-        if not typer.confirm("Type yes to confirm you understand and want to proceed"):
+        # Require the literal word "yes": typer.confirm would accept a bare "y",
+        # so a piped `yes |` could auto-answer a destructive plan (audit L5).
+        typed = typer.prompt("Type the word 'yes' to confirm you understand and want to proceed")
+        if typed.strip().lower() != "yes":
+            console.print("[yellow]Not confirmed; aborting.[/]")
             raise typer.Abort()
     if not typer.confirm("Run this plan now?"):
         raise typer.Abort()
+    if orch.log:
+        orch.log.plan_confirmed(device.serial, plan)
     results = orch.run(device, plan)
     for i, res in enumerate(results, 1):
         mark = "[green]ok[/]" if res.ok else "[red]failed[/]"
@@ -216,11 +257,14 @@ def debloat(
     bridge = _build_bridge(cfg)
     device = _resolve_or_abort(bridge, serial)
     _require_mode_or_abort(device, Mission.OPTIMIZE)
-    device = _consent(device, serial)
+    action_log = ActionLog() if log else None
+    device = _consent(device, serial, action_log)
 
-    orch = Orchestrator(None, bridge, log=ActionLog() if log else None)
+    orch = Orchestrator(None, bridge, log=action_log)
     optimize = orch.capability(Mission.OPTIMIZE)
     plan = optimize.build_debloat_plan(device)  # type: ignore[attr-defined]
+    if action_log:
+        action_log.plan_proposed(device.serial, plan)
     _show_plan(plan, drill_down=drill_down)
     _confirm_and_run(orch, device, plan)
 
@@ -255,15 +299,18 @@ def flash_rom(
     bridge = _build_bridge(cfg)
     device = _resolve_or_abort(bridge, serial)
     _require_mode_or_abort(device, Mission.FLASH)
-    device = _consent(device, serial)
+    action_log = ActionLog() if log else None
+    device = _consent(device, serial, action_log)
 
-    orch = Orchestrator(None, bridge, log=ActionLog() if log else None)
+    orch = Orchestrator(None, bridge, log=action_log)
     flash = orch.capability(Mission.FLASH)
     try:
         plan = flash.build_rom_flash_plan(device, product, images)  # type: ignore[attr-defined]
     except (FlashTargetMismatch, FileNotFoundError, ValueError) as exc:
         console.print(f"[bold red]Refusing to flash:[/] {exc}")
         raise typer.Abort() from exc
+    if action_log:
+        action_log.plan_proposed(device.serial, plan)
     _show_plan(plan, drill_down=drill_down)
     _confirm_and_run(orch, device, plan)
 
@@ -284,12 +331,18 @@ def show_log(
     table.add_column("Event")
     table.add_column("Detail")
     for e in entries[-limit:]:
-        if e.get("event") == "plan_proposed":
+        event = e.get("event")
+        if event == "plan_proposed":
             detail = f"{e.get('mission')} · {e.get('steps')} steps · risk {e.get('max_risk')}"
-        else:
-            ok = e.get("ok")
-            mark = "[green]ok[/]" if ok else "[red]fail[/]"
+        elif event == "plan_confirmed":
+            detail = f"confirmed {e.get('mission')} · risk {e.get('max_risk')}"
+        elif event == "consent_recorded":
+            detail = "operator confirmed ownership/consent"
+        elif event == "step_executed":
+            mark = "[green]ok[/]" if e.get("ok") else "[red]fail[/]"
             detail = f"{mark} {' '.join(e.get('command', []))}"
+        else:
+            detail = ""
         table.add_row(
             (e.get("ts", "") or "")[:19],
             e.get("serial", "") or "",
