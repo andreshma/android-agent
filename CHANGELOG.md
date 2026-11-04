@@ -32,4 +32,4 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `ContainerRunner` (network-less container, USB passthrough) — interface only.
 - Strict model/variant verification before `fastboot flash`.
 
-[Unreleased]: https://github.com/your-org/android-agent/commits/main
+[Unreleased]: https://github.com/andreshma/android-agent/commits/main
