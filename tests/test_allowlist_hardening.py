@@ -4,6 +4,7 @@ import pytest
 
 from android_agent.bridge import allowlist
 from android_agent.bridge.allowlist import CommandDenied
+from android_agent.models import RiskLevel
 
 
 @pytest.mark.parametrize(
@@ -49,6 +50,20 @@ def test_backup_removed_from_allowlist():
 def test_pm_disable_user_rejects_injection_in_package():
     with pytest.raises(CommandDenied):
         allowlist.validate(["adb", "shell", "pm", "disable-user", "com.x;reboot"])
+
+
+def test_pm_list_permissions_is_allowed_readonly():
+    # Read-only; natural for the audit mission (added after live LLM validation).
+    assert (
+        allowlist.validate(["adb", "shell", "pm", "list", "permissions", "-g", "-d"])
+        == "adb:shell:pm list permissions"
+    )
+    assert allowlist.risk_for(["adb", "shell", "pm", "list", "permissions"]) is RiskLevel.NONE
+
+
+def test_pm_list_permissions_rejects_unknown_flag():
+    with pytest.raises(CommandDenied):
+        allowlist.validate(["adb", "shell", "pm", "list", "permissions", "--wipe"])
 
 
 def test_flash_rejects_option_like_partition_at_allowlist():

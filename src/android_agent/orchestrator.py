@@ -38,6 +38,7 @@ _READONLY_ADB = {
     "adb:get-state",
     "adb:shell:getprop",
     "adb:shell:pm list packages",
+    "adb:shell:pm list permissions",
     "adb:shell:dumpsys package",
     "adb:shell:dumpsys batterystats",
     "adb:shell:cmd package list packages",
