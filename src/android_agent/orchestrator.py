@@ -25,9 +25,37 @@ from .capabilities.inspect import InspectCapability
 from .capabilities.optimize import OptimizeCapability
 from .capabilities.unlock import UnlockCapability
 from .llm.base import LLM
-from .models import Device, Mission, Plan, RiskLevel
+from .models import Device, DeviceMode, Mission, Plan, RiskLevel
 
 _RISK_ORDER = [RiskLevel.NONE, RiskLevel.LOW, RiskLevel.HIGH]
+
+# Which connection mode each mission requires. audit/optimize talk to a booted
+# device over adb; flash/unlock need the bootloader (fastboot).
+REQUIRED_MODE: dict[Mission, DeviceMode] = {
+    Mission.AUDIT: DeviceMode.ADB,
+    Mission.OPTIMIZE: DeviceMode.ADB,
+    Mission.FLASH: DeviceMode.FASTBOOT,
+    Mission.UNLOCK: DeviceMode.FASTBOOT,
+}
+
+
+class DeviceModeError(RuntimeError):
+    """Raised when the device isn't in the mode a mission requires."""
+
+
+def require_mode(device: Device, mission: Mission) -> None:
+    """Guard: the device must be in the mode the mission needs."""
+    needed = REQUIRED_MODE[mission]
+    if device.mode is not needed:
+        raise DeviceModeError(
+            f"The '{mission.value}' mission needs the device in {needed.value} mode, "
+            f"but {device.serial} is in {device.mode.value} mode. "
+            + (
+                "Enable USB debugging and boot normally."
+                if needed is DeviceMode.ADB
+                else "Reboot to the bootloader (e.g. `adb reboot bootloader`)."
+            )
+        )
 
 
 def annotate_plan_risk(plan: Plan) -> None:
@@ -68,6 +96,7 @@ class Orchestrator:
         how dangerous a step is."""
         if self.llm is None:
             raise RuntimeError("propose() needs an LLM backend; none was configured.")
+        require_mode(device, mission)
         facts = self.inspect.gather_facts(device)
         facts.update(self._caps[mission].gather_facts(device))
         plan = self.llm.propose_plan(mission=mission, request=request, device_facts=facts)

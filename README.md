@@ -119,7 +119,7 @@ container's adb at the host adb server over loopback (see `ContainerRunner`).
 ## Install (dev)
 
 ```bash
-pip install -e ".[dev,anthropic]"
+pip install -e ".[dev,anthropic]"   # or: uv sync --all-extras  (uses uv.lock)
 pytest
 android-agent --help
 android-agent devices
