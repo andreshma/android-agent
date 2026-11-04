@@ -16,6 +16,7 @@ it unchanged.
 from __future__ import annotations
 
 from .audit_log import ActionLog
+from .bridge import allowlist
 from .bridge.device import Bridge
 from .capabilities.audit import AuditCapability
 from .capabilities.base import Capability
@@ -24,7 +25,20 @@ from .capabilities.inspect import InspectCapability
 from .capabilities.optimize import OptimizeCapability
 from .capabilities.unlock import UnlockCapability
 from .llm.base import LLM
-from .models import Device, Mission, Plan
+from .models import Device, Mission, Plan, RiskLevel
+
+_RISK_ORDER = [RiskLevel.NONE, RiskLevel.LOW, RiskLevel.HIGH]
+
+
+def annotate_plan_risk(plan: Plan) -> None:
+    """Validate every step against the allowlist and set each step's risk to the
+    authoritative level derived from its command (never below what the LLM
+    declared). Raises ``allowlist.CommandDenied`` if any command is not
+    permitted, rejecting the whole plan before the user can confirm it."""
+    for step in plan.steps:
+        derived = allowlist.risk_for(step.command)  # raises if not allowlisted
+        if _RISK_ORDER.index(derived) > _RISK_ORDER.index(step.risk):
+            step.risk = derived
 
 
 class Orchestrator:
@@ -46,12 +60,18 @@ class Orchestrator:
         return self._caps[mission]
 
     def propose(self, device: Device, mission: Mission, request: str) -> Plan:
-        """Phase 1: gather read-only facts and ask the LLM for a plan."""
+        """Phase 1: gather read-only facts and ask the LLM for a plan.
+
+        The plan is validated against the allowlist and its risk levels are
+        re-derived from the commands, so a hallucinated or injected plan can
+        neither smuggle a non-allowlisted command past the user nor understate
+        how dangerous a step is."""
         if self.llm is None:
             raise RuntimeError("propose() needs an LLM backend; none was configured.")
         facts = self.inspect.gather_facts(device)
         facts.update(self._caps[mission].gather_facts(device))
         plan = self.llm.propose_plan(mission=mission, request=request, device_facts=facts)
+        annotate_plan_risk(plan)
         if self.log:
             self.log.plan_proposed(device.serial, plan)
         return plan

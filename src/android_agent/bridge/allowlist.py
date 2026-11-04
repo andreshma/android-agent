@@ -47,6 +47,31 @@ _FASTBOOT_ALLOWED: dict[str, str] = {
 
 _TOOLS = {"adb": _ADB_ALLOWED, "fastboot": _FASTBOOT_ALLOWED}
 
+# Authoritative risk per allowlist key (``validate`` returns ``tool:key``).
+# This is the source of truth for how dangerous a command is — the LLM's
+# self-declared risk is never trusted over this. Anything not listed is treated
+# as HIGH (fail-safe), though ``validate`` denies unknown commands first.
+from ..models import RiskLevel  # noqa: E402  (kept near the data it annotates)
+
+_RISK: dict[str, RiskLevel] = {
+    "adb:devices": RiskLevel.NONE,
+    "adb:get-state": RiskLevel.NONE,
+    "adb:shell:getprop": RiskLevel.NONE,
+    "adb:shell:pm list packages": RiskLevel.NONE,
+    "adb:shell:dumpsys": RiskLevel.NONE,
+    "adb:shell:cmd package": RiskLevel.NONE,
+    "adb:shell:pm disable-user": RiskLevel.LOW,
+    "adb:shell:pm enable": RiskLevel.LOW,
+    "adb:shell:pm clear": RiskLevel.LOW,
+    "adb:backup": RiskLevel.LOW,
+    "fastboot:devices": RiskLevel.NONE,
+    "fastboot:getvar": RiskLevel.NONE,
+    "fastboot:reboot": RiskLevel.LOW,
+    "fastboot:flashing unlock": RiskLevel.HIGH,
+    "fastboot:flashing lock": RiskLevel.HIGH,
+    "fastboot:flash": RiskLevel.HIGH,
+}
+
 
 class CommandDenied(RuntimeError):
     """Raised when a proposed command is not on the allowlist."""
@@ -94,3 +119,14 @@ def validate(command: list[str]) -> str:
             f"{tool} sub-command not on allowlist: {' '.join(command[1:]) or '(none)'}"
         )
     return f"{tool}:{key}"
+
+
+def risk_for(command: list[str]) -> RiskLevel:
+    """Authoritative risk for a command, derived from the allowlist.
+
+    Validates first (raising ``CommandDenied`` if not permitted), then returns
+    the mapped risk. An allowlisted-but-unmapped command defaults to HIGH so a
+    new entry is never silently treated as safe.
+    """
+    full_key = validate(command)
+    return _RISK.get(full_key, RiskLevel.HIGH)
