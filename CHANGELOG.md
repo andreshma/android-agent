@@ -6,6 +6,14 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-04
+
+First public alpha. Full own-device agent (audit, optimize, debloat, flash-rom,
+unlock) behind the two-phase propose→confirm→execute contract, dual LLM backends
+(Ollama local / Claude hosted), the allowlist + consent security boundary, the
+hardened container sandbox, and the 360° audit with every High/Medium/Low
+finding remediated.
+
 ### Security
 - **Container sandbox hardened** (audit M3): every `ContainerRunner` run now
   adds `--cap-drop=ALL`, `--security-opt=no-new-privileges`, a read-only root
@@ -135,4 +143,5 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   checklist); unit tests use fake bridges.
 - `ContainerRunner` image must be built/trusted by the operator.
 
-[Unreleased]: https://github.com/andreshma/android-agent/commits/main
+[Unreleased]: https://github.com/andreshma/android-agent/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/andreshma/android-agent/releases/tag/v0.1.0
