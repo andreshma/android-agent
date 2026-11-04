@@ -7,6 +7,13 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Container sandbox** (`ContainerRunner`, `--runner container`): runs the
+  toolchain in a network-less Podman/Docker container — USB passthrough on
+  Linux, host adb server over the Docker gateway on Windows/macOS. Includes
+  `docker/adb-tools.Dockerfile`.
+- **Strict flash target verification**: `fastboot getvar product` is checked
+  against the image's declared target before flashing; refuses (fail-safe) when
+  the product can't be confirmed, to avoid bricking the wrong model.
 - **Audit permission scan**: flags third-party apps holding granted
   privacy-sensitive permissions (microphone, camera, location, contacts, SMS,
   call log, …) by parsing `dumpsys package`.
@@ -29,7 +36,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Test suite (allowlist, consent, parsers, serial injection, schema).
 
 ### Known gaps / TODO
-- `ContainerRunner` (network-less container, USB passthrough) — interface only.
-- Strict model/variant verification before `fastboot flash`.
+- Richer optimize heuristics (battery/startup offenders).
+- A guided LineageOS flash walkthrough built on verified targets.
+- A `log` sub-command to review the action trail.
 
 [Unreleased]: https://github.com/andreshma/android-agent/commits/main

@@ -84,11 +84,14 @@ tested (19 tests). Working today:
 - ✅ serial injection so an action can only ever hit the authorized device
 - ✅ audit permission scan — flags apps with mic/camera/location/… granted
 - ✅ append-only action log (audit trail), on by default
+- ✅ container sandbox (`--runner container`) — network-less, Podman/Docker,
+  USB passthrough on Linux / host adb server on Windows & macOS
+- ✅ strict model/variant verification before any `fastboot flash` (fail-safe:
+  refuses to flash when the device product can't be confirmed)
 
-Deliberate, clearly-marked stubs left for the community (`TODO(contributors)`):
-
-- `bridge.sandbox.ContainerRunner` — Podman/Docker with USB passthrough, no net
-- strict model/variant verification in `capabilities.flash`
+Future ideas live in the issue tracker. Good next steps: richer optimize
+heuristics (battery/startup), a LineageOS flash walkthrough built on the verified
+target, and a `log` sub-command to review the action trail.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 

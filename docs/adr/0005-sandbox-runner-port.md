@@ -34,4 +34,12 @@ defined interface; implementation is a tracked contributor task.
 
 - Positive: containment is opt-in and transparent to upper layers.
 - Positive: cross-platform tool resolution handled in one place.
-- Negative: the container adapter is not implemented yet (interface frozen).
+- Negative: the operator must build and trust the container image; USB is only
+  isolated from the host on Linux (Windows/macOS reach the host adb server).
+
+## Update (implemented)
+
+`ContainerRunner` is now implemented: `--network none` + `--device=/dev/bus/usb`
+on Linux, and the host adb server over `host.docker.internal` on Windows/macOS,
+with Podman preferred over Docker. Command construction is pure and unit-tested
+per-OS; an `adb-tools` image is provided at `docker/adb-tools.Dockerfile`.
