@@ -46,6 +46,10 @@ def parse_fastboot_devices(stdout: str) -> list[Device]:
     Example line (tab- or space-separated)::
 
         ABCD1234    fastboot
+
+    Only lines whose second field is exactly ``fastboot`` are treated as
+    devices, so informational chatter (``< waiting for any device >``,
+    ``(bootloader) …``) is never mistaken for a serial (audit L7).
     """
     devices: list[Device] = []
     for raw in stdout.splitlines():
@@ -53,8 +57,9 @@ def parse_fastboot_devices(stdout: str) -> list[Device]:
         if not line:
             continue
         parts = line.split()
-        serial = parts[0]
-        devices.append(Device(serial=serial, mode=DeviceMode.FASTBOOT))
+        if len(parts) < 2 or parts[1] != "fastboot":
+            continue
+        devices.append(Device(serial=parts[0], mode=DeviceMode.FASTBOOT))
     return devices
 
 

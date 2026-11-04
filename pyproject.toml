@@ -29,7 +29,7 @@ dependencies = [
 
 [project.optional-dependencies]
 anthropic = ["anthropic>=0.39"]
-dev = ["pytest>=8.0", "ruff>=0.5", "mypy>=1.10"]
+dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.5", "mypy>=1.10"]
 
 [project.scripts]
 android-agent = "android_agent.cli:app"
@@ -63,3 +63,21 @@ warn_unused_ignores = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--cov=android_agent --cov-report=term-missing"
+
+[tool.coverage.run]
+branch = true
+source = ["android_agent"]
+omit = ["*/__main__.py"]  # thin `python -m` entry shim
+
+[tool.coverage.report]
+# Security-relevant code should stay well tested; this floor fails CI if
+# coverage regresses below it (audit M8).
+fail_under = 80
+show_missing = true
+exclude_also = [
+  "if TYPE_CHECKING:",
+  "raise NotImplementedError",
+  "@abstractmethod",
+  "pragma: no cover",
+]

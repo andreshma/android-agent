@@ -7,6 +7,35 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Security
+- **Container sandbox hardened** (audit M3): every `ContainerRunner` run now
+  adds `--cap-drop=ALL`, `--security-opt=no-new-privileges`, a read-only root
+  filesystem with a `/tmp` tmpfs, and PID/memory limits; the image runs as a
+  non-root user. (Container mode targets the read-only missions; flashing in a
+  container needs image mounting, still a documented limitation.)
+- **Untrusted device data is framed and bounded** (audit M6): device facts are
+  wrapped in a delimited `<device_facts>` block, labelled "data, not
+  instructions" in both prompts, and capped at `schema.MAX_FACTS_CHARS`,
+  reducing the prompt-injection surface from an app label or property.
+- **Hosted-LLM egress is disclosed** (audit M6): selecting `--llm anthropic`
+  now shows an explicit notice that device facts will be sent to a third-party
+  API before any planning happens.
+- **Action log is tamper-evident** (audit L4): entries are hash-chained
+  (`prev`/`hash`), so an edited, reordered or deleted entry is detectable via
+  `ActionLog.verify`. The log now also records the consent acknowledgement and
+  the explicit plan confirmation, and `debloat`/`flash-rom` plans are logged.
+- **LLM API key no longer leaks to the toolchain** (audit L3): the adb/fastboot
+  child process is launched with a scrubbed environment that omits
+  `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`; on Windows, a tool resolved from the
+  current working directory is rejected (CWD-shadowing guard).
+- **Destructive confirmation requires a typed "yes"** (audit L5): the HIGH-risk
+  gate now rejects a bare `y`, so a piped `yes |` cannot auto-approve a flash.
+- **Model/network errors are handled** (audit L2): an unreachable backend,
+  malformed output or a `max_tokens`-truncated plan now abort with a clear
+  message instead of a traceback; a truncated hosted-model plan is rejected
+  rather than run partially (audit L7).
+- **`fastboot devices` parsing tightened** (audit L7): only lines whose second
+  field is `fastboot` are treated as devices, so informational chatter is never
+  mistaken for a serial.
 - **Allowlist now validates arguments, not just the sub-command** (audit H1):
   per-key argument validators (regex per position, fail-closed) plus an expanded
   shell-metacharacter check, closing device-side `adb shell` injection like
@@ -40,6 +69,14 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   non-allowlisted command now rejects the whole plan at propose time.
 
 ### Added
+- **Coverage floor in CI** (audit M8): `pytest-cov` with an 80% `fail_under`
+  gate, plus tests for both LLM adapters (Ollama via a fake `httpx.post`,
+  Anthropic via an injected client), the sandbox hardening/env-scrub, the
+  hash-chained log, and the `run`/`devices`/`log` CLI paths.
+- **CI supply-chain hardening** (audit M9): GitHub Actions pinned by commit SHA,
+  a `uv sync --frozen` job that fails if `uv.lock` is stale, a `pip-audit` SCA
+  job, Dependabot release cooldown, and the `anthropic` extra installed in CI so
+  the hosted adapter is covered (audit L8).
 - `python -m android_agent` entry point.
 - 360° audit report + CycloneDX SBOM under `audits/`.
 - `--runner` is now an Enum validated by Typer and honours `ANDROID_AGENT_RUNNER`

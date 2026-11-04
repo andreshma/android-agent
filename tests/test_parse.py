@@ -31,6 +31,13 @@ def test_parse_fastboot_devices():
     assert devices[0].mode is DeviceMode.FASTBOOT
 
 
+def test_parse_fastboot_ignores_noise_lines():
+    # Only lines whose second field is 'fastboot' are devices (audit L7).
+    noisy = "< waiting for any device >\nABCD1234\tfastboot\n(bootloader) foo\n"
+    devices = parse.parse_fastboot_devices(noisy)
+    assert [d.serial for d in devices] == ["ABCD1234"]
+
+
 def test_parse_getvar():
     err = "(bootloader) unlocked: yes\nOKAY [  0.001s]\n"
     assert parse.parse_getvar(err, "unlocked") == "yes"

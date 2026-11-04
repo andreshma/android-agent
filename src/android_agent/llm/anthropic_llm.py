@@ -67,6 +67,11 @@ class AnthropicLLM(LLM):
                 }
             ],
         )
+        if getattr(msg, "stop_reason", None) == "max_tokens":
+            raise RuntimeError(
+                "the model's plan was cut off at max_tokens before completing; "
+                "it may be truncated, so it is rejected rather than run partially."
+            )
         for block in msg.content:
             if block.type == "tool_use" and block.name == "emit_plan":
                 return schema.plan_from_payload(dict(block.input), mission)

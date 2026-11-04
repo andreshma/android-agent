@@ -24,16 +24,18 @@ open to discussion.
 ## Good first contributions
 
 See the open items in the latest [`audits/`](audits/) report and
-[CHANGELOG.md](CHANGELOG.md). Good candidates:
+[CHANGELOG.md](CHANGELOG.md). The High findings and all tracked Medium/Low
+items are now addressed; good remaining candidates:
 
-- Harden `ContainerRunner` (drop capabilities, non-root `USER`, pin the base
-  image by digest, read-only image mount) — audit M3.
-- Add `pytest-cov` with a coverage floor, plus tests for the LLM adapters
-  (`httpx.MockTransport` / a mocked Anthropic client) — audit M8.
-- CI supply-chain jobs: SHA-pin actions, Dependabot cooldown, `uv sync
-  --frozen`, a secret/SAST/SBOM job — audit M9.
-- Wrap device facts in a delimited "data, not instructions" block and cap their
-  size before sending to the LLM — audit M6.
+- **Container image flashing**: let `ContainerRunner` mount the image directory
+  read-only so `flash-rom` works in container mode, not just the read-only
+  missions (today it's host-runner only — see the threat model).
+- **Real-device integration test**: automate the manual checklist in
+  [docs/TESTING.md] against a device or an emulator in CI.
+- **Pin the base image by digest** in `docker/adb-tools.Dockerfile` and wire a
+  container image scan (Trivy/Grype) into the `security` CI job.
+- **Harden the allowlist argument validators** further with property-based
+  (Hypothesis) tests for the regexes.
 
 ## Dev setup
 

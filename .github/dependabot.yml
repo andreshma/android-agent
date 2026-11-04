@@ -4,6 +4,10 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+    # Wait before opening PRs for brand-new releases, so a compromised or
+    # yanked version is less likely to be pulled in automatically (audit M9).
+    cooldown:
+      default-days: 7
     groups:
       python-deps:
         patterns: ["*"]
@@ -12,3 +16,5 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7

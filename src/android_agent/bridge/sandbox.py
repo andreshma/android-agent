@@ -42,16 +42,37 @@ class RunOutput:
 
 _ENV_OVERRIDE = {"adb": "ANDROID_AGENT_ADB", "fastboot": "ANDROID_AGENT_FASTBOOT"}
 
+# Secrets that must never be inherited by the adb/fastboot child process: the
+# device toolchain has no business reading the operator's hosted-LLM API key, so
+# we strip it from the environment we hand the subprocess (audit L3).
+_SCRUBBED_ENV_KEYS = frozenset({"ANTHROPIC_API_KEY", "OPENAI_API_KEY"})
+
+
+def _child_env() -> dict[str, str]:
+    """A copy of the environment with LLM secrets removed, for the toolchain."""
+    return {k: v for k, v in os.environ.items() if k not in _SCRUBBED_ENV_KEYS}
+
 
 def resolve_tool(name: str) -> str | None:
     """Return an absolute path to ``adb``/``fastboot`` or None if not found.
 
     Checks an explicit env override first, then PATH (``.exe`` aware on Windows).
+    On Python < 3.12, ``shutil.which`` on Windows searches the current directory
+    first, so a planted ``adb.exe`` in the CWD could shadow the real one; we
+    reject a hit that resolves into the CWD unless it was an explicit override
+    (audit L3).
     """
     override = os.environ.get(_ENV_OVERRIDE.get(name, ""))
     if override and os.path.isfile(override):
         return override
-    return shutil.which(name)
+    found = shutil.which(name)
+    if found and sys.platform == "win32":
+        try:
+            if os.path.dirname(os.path.abspath(found)) == os.getcwd():
+                return None
+        except OSError:
+            return None
+    return found
 
 
 def _run_subprocess(argv: list[str], timeout: float | None) -> RunOutput:
@@ -63,6 +84,7 @@ def _run_subprocess(argv: list[str], timeout: float | None) -> RunOutput:
             text=True,
             timeout=timeout,
             shell=False,
+            env=_child_env(),
         )
     except FileNotFoundError as exc:
         return RunOutput(127, "", str(exc))
@@ -135,12 +157,32 @@ class ContainerRunner:
     def _is_linux(self) -> bool:
         return self.platform.startswith("linux")
 
+    # Hardening applied to every container run (audit M3). Added unconditionally
+    # so the sandbox is least-privilege by default; USB device-node access is
+    # file-permission based, so dropping all capabilities does not block it.
+    #
+    #   --security-opt=no-new-privileges  no setuid escalation inside
+    #   --cap-drop=ALL                    no Linux capabilities
+    #   --read-only + --tmpfs=/tmp        immutable root fs, writable scratch
+    #   -e HOME=/tmp                      adb keeps its key in the tmpfs
+    #   --pids-limit / --memory           blast-radius limits on a bad binary
+    _HARDENING = (
+        "--security-opt=no-new-privileges",
+        "--cap-drop=ALL",
+        "--read-only",
+        "--tmpfs=/tmp",
+        "-e",
+        "HOME=/tmp",
+        "--pids-limit=512",
+        "--memory=2g",
+    )
+
     def build_command(self, inner: list[str], engine: str) -> list[str]:
         """Wrap an inner adb/fastboot argv in a container run invocation.
 
         Pure and deterministic (no subprocess), so it is unit-tested per OS.
         """
-        argv = [engine, "run", "--rm", "-i"]
+        argv = [engine, "run", "--rm", "-i", *self._HARDENING]
         if self._is_linux:
             # USB passthrough; fully network-less.
             argv += ["--network", "none", "--device=/dev/bus/usb"]
