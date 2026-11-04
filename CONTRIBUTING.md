@@ -27,9 +27,6 @@ See the open items in the latest [`audits/`](audits/) report and
 [CHANGELOG.md](CHANGELOG.md). The High findings and all tracked Medium/Low
 items are now addressed; good remaining candidates:
 
-- **Container image flashing**: let `ContainerRunner` mount the image directory
-  read-only so `flash-rom` works in container mode, not just the read-only
-  missions (today it's host-runner only — see the threat model).
 - **Real-device integration test**: automate the manual checklist in
   [docs/TESTING.md] against a device or an emulator in CI.
 - **Pin the base image by digest** in `docker/adb-tools.Dockerfile` and wire a
