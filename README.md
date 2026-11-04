@@ -26,7 +26,8 @@ want to install LineageOS", "which apps are spying on me?") and the technical
 > **[DISCLAIMER](DISCLAIMER.md)** before using the tool.
 
 📖 **New here? Start with the [User Manual](docs/USAGE.md)** — dependencies,
-device setup, every command, and the full flashing workflow.
+device setup, every command, and the full flashing workflow. For copy-paste
+recipes covering every feature, see the **[Examples Cookbook](docs/EXAMPLES.md)**.
 
 ## Contents
 
@@ -231,6 +232,7 @@ issue tracker.
 ## Documentation
 
 - [User Manual](docs/USAGE.md) — dependencies, device setup, every flow, flashing
+- [Examples Cookbook](docs/EXAMPLES.md) — copy-paste examples for every feature
 - [Disclaimer & liability waiver](DISCLAIMER.md) — read before use
 - [Architecture](docs/ARCHITECTURE.md) — layers, C4 views, patterns, invariants
 - [Diagrams](docs/DIAGRAMS.md) — context, layers, sequence, trust boundaries

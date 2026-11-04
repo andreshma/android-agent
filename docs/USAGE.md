@@ -2,7 +2,8 @@
 
 A step-by-step guide to everything android-agent can do with your own Android
 device, the dependencies and preconditions it needs, and the full workflows
-(including flashing). For the design and security rationale see
+(including flashing). For **copy-paste examples of every feature**, see the
+[Examples Cookbook](EXAMPLES.md). For the design and security rationale see
 [ARCHITECTURE.md](ARCHITECTURE.md) and [THREAT_MODEL.md](THREAT_MODEL.md).
 
 > ⚠️ **Read [DISCLAIMER.md](../DISCLAIMER.md) first.** Flashing and unlocking can
