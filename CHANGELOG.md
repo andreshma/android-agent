@@ -6,6 +6,14 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Examples Cookbook** ([docs/EXAMPLES.md](docs/EXAMPLES.md)): copy-paste
+  examples covering every feature — install, tool paths, both backends, each
+  command and flag, the container runner, logging/verification, practising on an
+  emulator, troubleshooting, and a full ROM-flash walkthrough — with real run
+  transcripts and both bash and Windows PowerShell variants. Linked from the
+  README and the User Manual.
+
 ## [0.1.1] - 2026-11-04
 
 Documentation, legal, and test hardening on top of 0.1.0, plus a real
