@@ -6,6 +6,11 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-04
+
+Documentation, legal, and test hardening on top of 0.1.0, plus a real
+cross-platform flashing fix.
+
 ### Fixed
 - **Cross-platform flashing**: the allowlist's blanket shell-metacharacter check
   rejected any token containing `\`, spaces or `()`, so a real Windows image
@@ -164,5 +169,6 @@ finding remediated.
   checklist); unit tests use fake bridges.
 - `ContainerRunner` image must be built/trusted by the operator.
 
-[Unreleased]: https://github.com/andreshma/android-agent/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/andreshma/android-agent/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/andreshma/android-agent/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/andreshma/android-agent/releases/tag/v0.1.0
