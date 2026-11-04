@@ -82,11 +82,12 @@ tested (19 tests). Working today:
 - ✅ structured `propose_plan` for both backends (Ollama JSON mode, Claude tool use)
 - ✅ end-to-end CLI: consent → plan → drill-down → confirm → execute
 - ✅ serial injection so an action can only ever hit the authorized device
+- ✅ audit permission scan — flags apps with mic/camera/location/… granted
+- ✅ append-only action log (audit trail), on by default
 
 Deliberate, clearly-marked stubs left for the community (`TODO(contributors)`):
 
 - `bridge.sandbox.ContainerRunner` — Podman/Docker with USB passthrough, no net
-- per-app permission enrichment in `capabilities.audit`
 - strict model/variant verification in `capabilities.flash`
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
