@@ -46,6 +46,18 @@ def product_matches(getvar_output: str, expected_product: str) -> bool:
     return product.strip().casefold() == expected_product.strip().casefold()
 
 
+def _reject_option_like(value: str, what: str) -> str:
+    """Guard against argument injection: a partition or image path that starts
+    with ``-`` could be parsed by fastboot as an option rather than a value.
+    argv (no shell) already blocks command injection; this closes option
+    injection too."""
+    if value.startswith("-"):
+        raise ValueError(f"{what} must not start with '-' (got {value!r})")
+    if not value:
+        raise ValueError(f"{what} must not be empty")
+    return value
+
+
 class FlashCapability(Capability):
     mission = "flash"
 
@@ -57,6 +69,8 @@ class FlashCapability(Capability):
 
     @staticmethod
     def flash_partition_step(serial: str, partition: str, image_path: str) -> Step:
+        partition = _reject_option_like(partition, "partition")
+        image_path = _reject_option_like(image_path, "image path")
         return Step(
             capability="flash",
             human=(
