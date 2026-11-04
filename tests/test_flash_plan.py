@@ -50,3 +50,11 @@ def test_build_rom_flash_plan_refuses_on_mismatch():
     cap = FlashCapability(_FakeBridge("(bootloader) product: bramble\n"))
     with pytest.raises(FlashTargetMismatch):
         cap.build_rom_flash_plan(_fastboot_device(), "redfin", {"boot": "b.img"})
+
+
+def test_flash_step_rejects_option_like_partition():
+    # Argument-injection guard: a partition/image starting with '-' is refused.
+    with pytest.raises(ValueError):
+        FlashCapability.flash_partition_step("S1", "--version", "boot.img")
+    with pytest.raises(ValueError):
+        FlashCapability.flash_partition_step("S1", "boot", "-x")
