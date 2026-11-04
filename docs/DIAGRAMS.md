@@ -7,23 +7,23 @@ Rendered by GitHub automatically (Mermaid). They complement the prose in
 
 ```mermaid
 flowchart TB
-    operator([Operator<br/>owns the device])
-    subgraph host[This machine]
-        agent[android-agent CLI]
-        llm_local[Ollama<br/>local LLM]
-        tools[adb / fastboot]
-        container[(optional<br/>container sandbox)]
+    operator(["Operator — owns the device"])
+    subgraph host["This machine"]
+        agent["android-agent CLI"]
+        llm_local["Ollama<br/>local LLM"]
+        tools["adb / fastboot"]
+        container[("container sandbox<br/>(optional)")]
     end
-    llm_api[Claude API<br/>hosted LLM]
-    device[Android device<br/>USB]
+    llm_api["Claude API<br/>hosted LLM"]
+    device["Android device<br/>USB"]
 
-    operator -- intent / confirmation --> agent
-    agent -- plain-language plan & results --> operator
-    agent -- facts / plan request --> llm_local
-    agent -. opt-in .-> llm_api
-    agent -- allowlisted argv --> tools
-    tools -- USB --> device
-    agent -. --runner container .-> container
+    operator -- "intent / confirmation" --> agent
+    agent -- "plain-language plan & results" --> operator
+    agent -- "facts / plan request" --> llm_local
+    agent -. "opt-in" .-> llm_api
+    agent -- "allowlisted argv" --> tools
+    tools -- "USB" --> device
+    agent -. "--runner container" .-> container
     container --> tools
 ```
 
@@ -31,14 +31,14 @@ flowchart TB
 
 ```mermaid
 flowchart TB
-    cli[CLI · Typer + Rich<br/>consent · show plan · drill-down · confirm]
-    orch[Orchestrator<br/>propose → annotate risk → run]
-    caps[Capabilities<br/>audit · optimize · flash · unlock · inspect]
-    llm[LLM port<br/>Ollama · Claude]
-    bridge[Device Bridge<br/>single doorway]
-    allow[[Allowlist<br/>security boundary]]
-    sandbox[Sandbox Runner<br/>Local · Container]
-    hw[adb / fastboot]
+    cli["CLI · Typer + Rich<br/>consent · show plan · drill-down · confirm"]
+    orch["Orchestrator<br/>propose → annotate risk → run"]
+    caps["Capabilities<br/>audit · optimize · flash · unlock · inspect"]
+    llm["LLM port<br/>Ollama · Claude"]
+    bridge["Device Bridge<br/>single doorway"]
+    allow[["Allowlist<br/>security boundary"]]
+    sandbox["Sandbox Runner<br/>Local · Container"]
+    hw["adb / fastboot"]
 
     cli --> orch
     orch --> caps
@@ -61,7 +61,7 @@ sequenceDiagram
     participant AL as Allowlist
     participant Dev as Device
 
-    Op->>CLI: run <mission> "request" -s SERIAL
+    Op->>CLI: run MISSION "request" -s SERIAL
     CLI->>CLI: consent gate (per-serial)
     CLI->>Orch: propose(device, mission, request)
     Orch->>Orch: require_mode(device, mission)
@@ -69,7 +69,7 @@ sequenceDiagram
     Cap->>Dev: allowlisted reads
     Orch->>LLM: propose_plan(facts)
     LLM-->>Orch: Plan (untrusted)
-    Orch->>AL: validate + risk_for each step
+    Orch->>AL: validate + risk_for + mission-scope
     AL-->>Orch: authoritative risk / deny
     Orch-->>CLI: Plan (risk re-derived)
     CLI->>Op: show plan (+ drill-down)
@@ -78,10 +78,10 @@ sequenceDiagram
     loop each step
         Orch->>Cap: execute_step
         Cap->>AL: validate(command)
-        Cap->>Dev: inject serial → execute
+        Cap->>Dev: inject serial, execute
         Orch->>Orch: log step
     end
-    Orch-->>CLI: results
+    Orch-->>CLI: results (stop on failure)
     CLI->>Op: per-step outcome
 ```
 
@@ -89,16 +89,16 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-    subgraph untrusted_in[Untrusted input]
-        devdata[Device output<br/>app names, props]
-        plan[LLM Plan]
+    subgraph untrusted_in["Untrusted input"]
+        devdata["Device output<br/>app names, props"]
+        plan["LLM Plan"]
     end
-    boundary{{Allowlist + risk_for<br/>consent + serial inject}}
-    subgraph trusted[Trusted execution]
-        exec[argv · shell=false]
+    boundary{{"Allowlist + risk_for + mission-scope<br/>consent + serial inject"}}
+    subgraph trusted["Trusted execution"]
+        exec["argv · shell=false"]
     end
     devdata --> plan
     plan --> boundary
-    boundary -- permitted only --> exec
-    boundary -- denied --> reject[Rejected]
+    boundary -- "permitted only" --> exec
+    boundary -- "denied" --> reject(["Rejected"])
 ```
