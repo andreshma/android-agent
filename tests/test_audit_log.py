@@ -59,3 +59,26 @@ def test_log_is_best_effort_on_bad_path(tmp_path):
     blocker.write_text("x", encoding="utf-8")
     log = ActionLog(path=blocker / "nested" / "a.jsonl")
     log.plan_proposed("S", _plan())  # should silently no-op, not crash
+
+
+def test_read_entries_filters_by_serial(tmp_path):
+    log = ActionLog(path=tmp_path / "a.jsonl")
+    log.plan_proposed("AAA", _plan())
+    log.plan_proposed("BBB", _plan())
+    log.step_executed("AAA", StepResult(step=_plan().steps[0], ok=True))
+    all_entries = list(log.read_entries())
+    assert len(all_entries) == 3
+    aaa = list(log.read_entries(serial="AAA"))
+    assert len(aaa) == 2
+    assert all(e["serial"] == "AAA" for e in aaa)
+
+
+def test_read_entries_skips_malformed_lines(tmp_path):
+    p = tmp_path / "a.jsonl"
+    p.write_text('{"event":"x","serial":"S"}\nnot json\n{"event":"y"}\n', encoding="utf-8")
+    entries = list(ActionLog(path=p).read_entries())
+    assert [e["event"] for e in entries] == ["x", "y"]
+
+
+def test_read_entries_missing_file(tmp_path):
+    assert list(ActionLog(path=tmp_path / "nope.jsonl").read_entries()) == []

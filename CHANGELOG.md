@@ -7,6 +7,16 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **`debloat` command**: deterministic (no-LLM) detection of likely-bloatware
+  apps (OEM/carrier/preinstalled bundles) and a reversible plan that disables
+  them; core/system apps are protected from being flagged.
+- **`flash-rom` command**: a verified, ordered, guarded ROM-flash walkthrough
+  (`FlashCapability.build_rom_flash_plan`) — verifies the target, flashes
+  partitions in a recommended order, then reboots.
+- **`log` command**: review the recorded action trail, optionally filtered by
+  device serial (`ActionLog.read_entries`).
+- `Orchestrator` now accepts `llm=None` for deterministic plans that need no
+  model.
 - **Container sandbox** (`ContainerRunner`, `--runner container`): runs the
   toolchain in a network-less Podman/Docker container — USB passthrough on
   Linux, host adb server over the Docker gateway on Windows/macOS. Includes
@@ -36,8 +46,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Test suite (allowlist, consent, parsers, serial injection, schema).
 
 ### Known gaps / TODO
-- Richer optimize heuristics (battery/startup offenders).
-- A guided LineageOS flash walkthrough built on verified targets.
-- A `log` sub-command to review the action trail.
+- Battery/startup offender analysis in optimize (bloatware detection landed;
+  power-draw ranking still open).
+- `ContainerRunner` image must be built/trusted by the operator.
 
 [Unreleased]: https://github.com/andreshma/android-agent/commits/main

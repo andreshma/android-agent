@@ -12,8 +12,24 @@ the capability is built around guardrails:
 from __future__ import annotations
 
 from ..bridge import parse
-from ..models import Device, DeviceMode, RiskLevel, Step
+from ..models import Device, DeviceMode, Mission, Plan, RiskLevel, Step
 from .base import Capability
+
+# A sensible default order to flash partitions in. Partitions earlier in the
+# list are written first; callers supply only the ones they have images for.
+RECOMMENDED_PARTITION_ORDER: tuple[str, ...] = (
+    "bootloader",
+    "radio",
+    "vbmeta",
+    "dtbo",
+    "boot",
+    "init_boot",
+    "vendor_boot",
+    "super",
+    "system",
+    "vendor",
+    "product",
+)
 
 
 class FlashTargetMismatch(RuntimeError):
@@ -69,3 +85,44 @@ class FlashCapability(Capability):
                 f"Device {device.serial} is not the expected flash target "
                 f"'{expected_product}'. Refusing to flash to avoid bricking it."
             )
+
+    @staticmethod
+    def order_partitions(images: dict[str, str]) -> list[tuple[str, str]]:
+        """Order ``{partition: image_path}`` by the recommended flash order,
+        with any unknown partitions appended alphabetically after the known
+        ones (deterministic)."""
+        known = [(p, images[p]) for p in RECOMMENDED_PARTITION_ORDER if p in images]
+        rest = sorted((p, img) for p, img in images.items() if p not in RECOMMENDED_PARTITION_ORDER)
+        return known + rest
+
+    def build_rom_flash_plan(
+        self, device: Device, expected_product: str, images: dict[str, str]
+    ) -> Plan:
+        """Deterministic, guarded walkthrough to flash a ROM (e.g. LineageOS).
+
+        The caller MUST have confirmed the device is unlocked and backed up.
+        This verifies the target first (raising on mismatch), then emits an
+        ordered flash step per partition plus a final reboot.
+        """
+        self.require_target(device, expected_product)  # fail-safe before any step
+        ordered = self.order_partitions(images)
+        steps = [
+            self.flash_partition_step(device.serial, partition, image)
+            for partition, image in ordered
+        ]
+        steps.append(
+            Step(
+                capability="flash",
+                human="Reboot the device to finish and boot the new ROM.",
+                command=["fastboot", "-s", device.serial, "reboot"],
+                risk=RiskLevel.HIGH,
+                reversible=False,
+            )
+        )
+        summary = (
+            f"Flash {len(ordered)} partition(s) to '{expected_product}' in the "
+            "recommended order, then reboot. HIGH risk: this can erase data and, "
+            "if an image is wrong for your model, brick the device. The target "
+            "has been verified against the connected device."
+        )
+        return Plan(mission=Mission.FLASH, summary=summary, steps=steps)

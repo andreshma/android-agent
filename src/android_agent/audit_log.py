@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Iterator
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -70,3 +71,23 @@ class ActionLog:
                 "error": result.error.strip() or None,
             }
         )
+
+    def read_entries(self, serial: str | None = None) -> Iterator[dict]:
+        """Yield logged events in order, optionally filtered by device serial.
+
+        Malformed lines are skipped so a partially-written tail never breaks a
+        read. Returns nothing if the log doesn't exist yet.
+        """
+        if not self.path.exists():
+            return
+        with self.path.open(encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if serial is None or event.get("serial") == serial:
+                    yield event
