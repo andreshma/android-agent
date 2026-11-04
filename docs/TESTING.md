@@ -3,15 +3,20 @@
 ## Automated tests
 
 Pure logic (parsers, allowlist, consent, planning, logging) is covered by the
-unit suite and runs with no device:
+unit suite, and **every user flow is emulated end-to-end** through the real CLI
+with a fake bridge/LLM (`tests/test_flows_e2e.py`) — audit, optimize, debloat,
+flash-rom, unlock, plus the guard rails (consent decline, wrong mode,
+off-mission rejection, stop-on-failure, HIGH-risk typed-yes), hosted-backend
+egress and the verifiable action log. It all runs with no device:
 
 ```bash
-pytest -q
+pytest -q          # unit + end-to-end flow emulation, with an 80% coverage floor
 ruff check .
 mypy src
 ```
 
-CI runs this matrix on **Windows and Linux** across Python 3.10–3.12.
+CI runs this matrix on **Windows and Linux** across Python 3.10–3.12, plus a
+locked-install (`uv --frozen`) job and a `pip-audit` supply-chain job.
 
 ## Manual testing against a real device
 

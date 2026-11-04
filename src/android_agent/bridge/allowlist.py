@@ -87,9 +87,16 @@ _VAR = re.compile(r"^[A-Za-z0-9_.\-]+$")  # fastboot getvar variable
 _PART = re.compile(r"^[A-Za-z0-9_]+$")  # fastboot partition name
 
 
+_CONTROL = re.compile(r"[\x00-\x1f]")  # NUL, newline, tab, etc.
+
+
 def _is_value(value: str) -> bool:
-    """A non-option, non-empty token with no shell-significant characters."""
-    return bool(value) and not value.startswith("-") and not _META.search(value)
+    """A non-option, non-empty host-side argv value — e.g. a ``fastboot flash``
+    image path. It runs with ``shell=False`` and is never re-parsed by a shell,
+    so legitimate path characters (``\\``, ``:``, spaces, ``()`` as in
+    ``Program Files (x86)``) are fine; we only reject option-injection (a
+    leading ``-``) and control characters that would corrupt argv or the log."""
+    return bool(value) and not value.startswith("-") and not _CONTROL.search(value)
 
 
 # Per-full-key argument validators. ``tail`` is the argv after the matched key
@@ -163,10 +170,18 @@ def validate(command: list[str]) -> str:
     tool = command[0]
     if tool not in _TOOLS:
         raise CommandDenied(f"tool {tool!r} is not allowed (only: {', '.join(_TOOLS)})")
-    if any(_META.search(tok) for tok in command):
-        raise CommandDenied("shell-significant characters are not allowed in a command")
 
     rest = _strip_selector(command)
+    # Secondary guard against device-side shell reparse: `adb shell …` joins its
+    # arguments into one string that the phone's shell parses, so any
+    # shell-significant character there is rejected (defence in depth behind the
+    # per-key validators). Host-side argv (fastboot, non-shell adb) runs with
+    # shell=False and is governed by its per-key validator, so a file path with
+    # a '\\', spaces or '()' is allowed — otherwise Windows image paths like
+    # `C:\\…\\boot.img` could never be flashed.
+    if rest and rest[0] == "shell" and any(_META.search(tok) for tok in rest[1:]):
+        raise CommandDenied("shell-significant characters are not allowed in an adb shell argument")
+
     key = _match_key(tool, rest)
     if key is None:
         raise CommandDenied(

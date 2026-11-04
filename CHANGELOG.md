@@ -6,6 +6,27 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **Cross-platform flashing**: the allowlist's blanket shell-metacharacter check
+  rejected any token containing `\`, spaces or `()`, so a real Windows image
+  path (`C:\…\boot.img`, `Program Files (x86)`) made `fastboot flash` fail with
+  `CommandDenied`. The metacharacter guard is now scoped to `adb shell`
+  arguments (the only place the device re-parses them); host-side `fastboot`
+  image paths run with `shell=False` and accept normal path characters, still
+  rejecting option-injection (leading `-`) and control characters.
+
+### Added
+- **User Manual** ([docs/USAGE.md](docs/USAGE.md)): dependencies, device setup,
+  every command and flow, and the full flashing/unlock workflow.
+- **Disclaimer & liability waiver** ([DISCLAIMER.md](DISCLAIMER.md)): no warranty,
+  use-at-your-own-risk, your responsibilities, and limitation of liability,
+  linked prominently from the README.
+- **End-to-end flow tests** (`tests/test_flows_e2e.py`): every user flow —
+  devices, audit, optimize, debloat, flash-rom, unlock, the guard rails
+  (consent decline, wrong mode, off-mission rejection, stop-on-failure,
+  HIGH-risk typed-yes), hosted-backend egress and the verifiable log — emulated
+  through the real CLI with a fake bridge/LLM. Coverage now 85%.
+
 ## [0.1.0] - 2026-11-04
 
 First public alpha. Full own-device agent (audit, optimize, debloat, flash-rom,
