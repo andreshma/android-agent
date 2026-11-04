@@ -16,17 +16,19 @@ device.
 
 ## Trust boundaries
 
-```
- operator ──intent──▶ CLI ──▶ Orchestrator ──facts──▶ LLM (local | hosted)
-                                   │                      │
-                                   │◀──────── Plan ───────┘   ← UNTRUSTED output
-                                   ▼
-                              Allowlist  ← trust boundary: nothing past here
-                                   ▼        runs unless explicitly permitted
-                              Bridge ▶ Sandbox runner ▶ adb/fastboot ▶ device
-                                                                         ▲
-                                       device output (pm list, props) ───┘
-                                                           ← UNTRUSTED input
+```mermaid
+flowchart TD
+    op([Operator]) -- intent --> cli[CLI]
+    cli --> orch[Orchestrator]
+    orch -- facts --> llm["LLM (local | hosted)"]
+    llm -. "Plan — UNTRUSTED output" .-> orch
+    orch --> allow{{"Allowlist + risk_for + mission-scope<br/>trust boundary: nothing past here runs<br/>unless explicitly permitted"}}
+    allow -- "permitted only" --> bridge[Bridge]
+    allow -- denied --> rej([Rejected])
+    bridge --> runner[Sandbox runner]
+    runner --> tools[adb / fastboot]
+    tools --> dev[(Device)]
+    dev -. "output — UNTRUSTED input<br/>(pm list, props)" .-> orch
 ```
 
 The **LLM output** and the **device output** are both treated as untrusted.

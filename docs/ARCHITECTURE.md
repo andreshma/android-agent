@@ -7,57 +7,59 @@ toolchain) swappable and testable.
 
 ## C4 — Context
 
-```
-        ┌───────────┐   intent / confirmation    ┌────────────────┐
-        │  Operator │ ─────────────────────────▶ │  android-agent │
-        └───────────┘ ◀───────────────────────── │     (CLI)      │
-          plain-language plans & results          └───────┬────────┘
-                                                          │
-                        ┌─────────────────────────────────┼───────────────┐
-                        ▼                                 ▼                 ▼
-                ┌──────────────┐                 ┌────────────────┐  ┌───────────┐
-                │ LLM backend  │                 │ Android device │  │  (opt.)   │
-                │ Ollama/Claude│                 │ adb / fastboot │  │ container │
-                └──────────────┘                 └────────────────┘  └───────────┘
+```mermaid
+flowchart TD
+    op([Operator — owns the device])
+    agent["android-agent (CLI)"]
+    llm["LLM backend<br/>Ollama / Claude"]
+    dev["Android device<br/>adb / fastboot"]
+    cont[("container sandbox<br/>(optional)")]
+
+    op -- "intent / confirmation" --> agent
+    agent -- "plain-language plans & results" --> op
+    agent --> llm
+    agent --> dev
+    agent -. "--runner container" .-> cont
+    cont --> dev
 ```
 
 ## C4 — Container / layers
 
-```
-┌─ CLI (Typer + Rich) ─────────────────────────── cli.py ───────────┐
-│  consent gate · show plan · --drill-down · confirm (extra for HIGH) │
-├─ Orchestrator ───────────────────────────── orchestrator.py ──────┤
-│  propose(facts→LLM Plan) / run(plan)   — no I/O, no prompts, testable │
-├─ Capabilities (one per mission) ─────────── capabilities/*.py ─────┤
-│  audit · optimize · flash · unlock · inspect   (consent enforced)   │
-├─ LLM (strategy / port) ───────────────────── llm/*.py ────────────┤
-│  base.LLM  ◀── ollama.py · anthropic_llm.py   (factory selects)     │
-├─ Device bridge (the ONLY doorway to a device) ─ bridge/device.py ──┤
-│  validate(allowlist) → inject serial → run                          │
-├─ Allowlist (security boundary) ───────────── bridge/allowlist.py ──┤
-├─ Sandbox runner (port) ──────────────────── bridge/sandbox.py ─────┤
-│  LocalRunner | ContainerRunner   (argv only, shell=False)           │
-└─ adb / fastboot ──────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    cli["CLI · cli.py<br/>consent · plan · --drill-down · confirm (extra for HIGH)"]
+    orch["Orchestrator · orchestrator.py<br/>propose → annotate risk → run — no I/O, testable"]
+    caps["Capabilities · capabilities/*.py<br/>audit · optimize · flash · unlock · inspect"]
+    llm["LLM port · llm/*.py<br/>base.LLM ← ollama · anthropic_llm (factory)"]
+    bridge["Device Bridge · bridge/device.py<br/>validate → inject serial → run"]
+    allow[["Allowlist · bridge/allowlist.py<br/>security boundary"]]
+    sandbox["Sandbox Runner · bridge/sandbox.py<br/>LocalRunner | ContainerRunner (argv, shell=False)"]
+    hw["adb / fastboot → device"]
+
+    cli --> orch
+    orch --> caps
+    orch --> llm
+    caps --> bridge
+    bridge --> allow
+    allow --> sandbox
+    sandbox --> hw
 ```
 
 ## The core contract: propose → confirm → execute
 
-```
-inspect.gather_facts(device)         # read-only snapshot
-  + capability.gather_facts(device)
-        │
-        ▼
-llm.propose_plan(mission, request, facts)   # returns a Plan (untrusted)
-        │
-        ▼
-CLI shows Plan.summary + steps  (optional --drill-down to raw argv)
-        │
-        ▼
-operator confirms   (HIGH risk ⇒ extra explicit yes)
-        │
-        ▼
-capability.execute_plan(device, plan)
-        └─ per step: require_authorized → with_serial → allowlist.validate → run
+```mermaid
+flowchart TD
+    f["inspect.gather_facts + capability.gather_facts<br/>(read-only snapshot)"]
+    p["llm.propose_plan(mission, request, facts)<br/>→ Plan (untrusted)"]
+    a["orchestrator.annotate_plan_risk<br/>validate · mission-scope · re-derive risk"]
+    s["CLI shows plan summary + steps<br/>(--drill-down → raw argv)"]
+    c{"operator confirms<br/>HIGH ⇒ extra yes"}
+    e["Orchestrator.run · per step:<br/>require_authorized → with_serial → allowlist.validate → execute<br/>(stop on a failed state-changing step)"]
+    x([Aborted])
+
+    f --> p --> a --> s --> c
+    c -->|yes| e
+    c -->|no| x
 ```
 
 ## Design patterns used
