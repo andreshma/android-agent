@@ -15,6 +15,7 @@ it unchanged.
 
 from __future__ import annotations
 
+from .audit_log import ActionLog
 from .bridge.device import Bridge
 from .capabilities.audit import AuditCapability
 from .capabilities.base import Capability
@@ -27,9 +28,10 @@ from .models import Device, Mission, Plan
 
 
 class Orchestrator:
-    def __init__(self, llm: LLM, bridge: Bridge) -> None:
+    def __init__(self, llm: LLM, bridge: Bridge, log: ActionLog | None = None) -> None:
         self.llm = llm
         self.bridge = bridge
+        self.log = log
         self._caps: dict[Mission, Capability] = {
             Mission.AUDIT: AuditCapability(bridge),
             Mission.OPTIMIZE: OptimizeCapability(bridge),
@@ -45,9 +47,22 @@ class Orchestrator:
         """Phase 1: gather read-only facts and ask the LLM for a plan."""
         facts = self.inspect.gather_facts(device)
         facts.update(self._caps[mission].gather_facts(device))
-        return self.llm.propose_plan(mission=mission, request=request, device_facts=facts)
+        plan = self.llm.propose_plan(mission=mission, request=request, device_facts=facts)
+        if self.log:
+            self.log.plan_proposed(device.serial, plan)
+        return plan
 
     def run(self, device: Device, plan: Plan):
         """Phase 2: execute an already-confirmed plan. The CLI must have
-        obtained confirmation (and the extra HIGH-risk yes) before calling."""
-        return self._caps[plan.mission].execute_plan(device, plan)
+        obtained confirmation (and the extra HIGH-risk yes) before calling.
+
+        Each step is executed and logged one at a time so the action log
+        reflects exactly what ran, even if a later step fails."""
+        cap = self._caps[plan.mission]
+        results = []
+        for step in plan.steps:
+            result = cap.execute_step(device, step)
+            if self.log:
+                self.log.step_executed(device.serial, result)
+            results.append(result)
+        return results

@@ -7,6 +7,12 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Audit permission scan**: flags third-party apps holding granted
+  privacy-sensitive permissions (microphone, camera, location, contacts, SMS,
+  call log, …) by parsing `dumpsys package`.
+- **Append-only action log** (JSONL): records proposed plans and executed steps
+  per device, closing the repudiation gap in the threat model. On by default;
+  `--no-log` to disable, `ANDROID_AGENT_LOG` to relocate.
 - Project scaffold: layered (ports & adapters) architecture.
 - Security boundary: `argv` command allowlist + ownership/consent gate.
 - Two-phase flow: propose → confirm (extra yes for HIGH risk) → execute, with
@@ -24,8 +30,6 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Known gaps / TODO
 - `ContainerRunner` (network-less container, USB passthrough) — interface only.
-- Permission enrichment in `audit` (flag mic/camera/location grants).
 - Strict model/variant verification before `fastboot flash`.
-- Append-only action log (audit trail).
 
 [Unreleased]: https://github.com/your-org/android-agent/commits/main

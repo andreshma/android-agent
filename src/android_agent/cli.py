@@ -13,6 +13,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from . import consent
+from .audit_log import ActionLog
 from .bridge.device import Bridge
 from .bridge.sandbox import ContainerRunner, LocalRunner
 from .config import Config
@@ -81,6 +82,7 @@ def run(
     llm: str = typer.Option(None, help="Override LLM backend: ollama | anthropic"),
     drill_down: bool = typer.Option(False, "--drill-down", help="Show the raw commands too."),
     runner: str = typer.Option("local", help="local | container"),
+    log: bool = typer.Option(True, "--log/--no-log", help="Record actions to an audit log."),
 ) -> None:
     """Propose a plan for a mission, then run it after your confirmation."""
     cfg = Config.from_env()
@@ -103,7 +105,10 @@ def run(
 
     # --- phase 1: propose ---
     llm_impl = make_llm(cfg.llm_backend)
-    orch = Orchestrator(llm_impl, bridge)
+    action_log = ActionLog() if log else None
+    orch = Orchestrator(llm_impl, bridge, log=action_log)
+    if action_log:
+        console.print(f"[dim]Logging actions to {action_log.path}[/]")
     console.print(f"[dim]Asking {llm_impl.name} to plan the '{mission.value}' mission…[/]")
     plan = orch.propose(device, mission, request)
     _show_plan(plan, drill_down=drill_down)
