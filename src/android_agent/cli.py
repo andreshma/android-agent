@@ -16,6 +16,7 @@ from . import consent
 from .audit_log import ActionLog
 from .bridge.device import Bridge
 from .bridge.sandbox import ContainerRunner, LocalRunner
+from .capabilities.flash import FlashTargetMismatch
 from .config import Config
 from .llm.factory import make_llm
 from .models import Mission, Plan, RiskLevel
@@ -204,7 +205,7 @@ def flash_rom(
     flash = orch.capability(Mission.FLASH)
     try:
         plan = flash.build_rom_flash_plan(device, product, images)  # type: ignore[attr-defined]
-    except Exception as exc:  # FlashTargetMismatch and friends
+    except FlashTargetMismatch as exc:
         console.print(f"[bold red]Refusing to flash:[/] {exc}")
         raise typer.Abort() from exc
     _show_plan(plan, drill_down=drill_down)

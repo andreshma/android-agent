@@ -6,7 +6,15 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+- **Authoritative risk + plan validation**: proposed plans are re-validated
+  against the allowlist and each step's risk is re-derived from its command
+  (`allowlist.risk_for`, `orchestrator.annotate_plan_risk`) before the user
+  confirms. The LLM can no longer understate a step's risk, and a
+  non-allowlisted command now rejects the whole plan at propose time.
+
 ### Added
+- `python -m android_agent` entry point.
 - **Battery drain analysis** in optimize: ranks the top power-consuming apps by
   joining `dumpsys batterystats` estimated power use with a uid→package map
   (`battery.top_power_consumers`), surfaced in the optimize facts.

@@ -77,7 +77,8 @@ capability.execute_plan(device, plan)
 ## Key invariants (do not break)
 
 1. The LLM output is untrusted; it can only ever result in an **allowlisted**
-   command.
+   command, and each step's **risk is derived from the allowlist**
+   (`allowlist.risk_for`), never trusted from the model.
 2. Commands are `argv` lists, executed with `shell=False` — never shell strings.
 3. No capability runs without `require_authorized(device)`.
 4. Every executed command targets the authorized serial (`with_serial`).

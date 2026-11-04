@@ -45,6 +45,11 @@ The **LLM output** and the **device output** are both treated as untrusted.
 - *Malicious data on the device influences the plan* (prompt injection via an
   app name, property, etc.). Mitigation: device output is data, never executed;
   any command it tries to induce still has to pass the allowlist.
+- *LLM understates risk or smuggles a command into an off-mission plan.*
+  Mitigation: `annotate_plan_risk` re-validates every proposed step against the
+  allowlist and re-derives its risk from the command (`allowlist.risk_for`)
+  before the user confirms — the LLM's self-declared risk is never trusted over
+  the allowlist, and a non-allowlisted command rejects the whole plan.
 
 ### Repudiation
 - *No record of what ran.* Partial today (CLI prints results). Planned: an
