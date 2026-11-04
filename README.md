@@ -159,9 +159,10 @@ internet.
 
 It runs least-privilege: `--cap-drop=ALL`, `--security-opt=no-new-privileges`, a
 read-only root filesystem with a `/tmp` tmpfs, PID/memory limits, and a non-root
-user in the image. Container mode is aimed at the read-only audit/optimize
-missions; flashing needs the image files mounted in, so run `flash-rom` on the
-`local` runner for now (see [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)).
+user in the image. ROM images named in a `flash-rom` command are bind-mounted
+read-only into the container automatically, so flashing works in the sandbox on
+Linux (USB passthrough); on Windows/macOS, USB-level flashing still belongs on
+the `local` runner (see [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)).
 
 Build the image once:
 

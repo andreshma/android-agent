@@ -33,7 +33,7 @@ report. Summary:
 | M5 | "required backup step" documented but absent; `adb backup` arg-free | **Partially fixed** — `adb backup` removed from the allowlist; backup remains a documented precondition |
 | M7 | Security docs claimed controls the code didn't provide | **Fixed** — docs reworded to match verified behaviour |
 | L1, L6 | `.coverage` tracked; stale counts/docstrings | **Fixed** |
-| M3 | Container sandbox weaker than documented | **Fixed** — cap-drop ALL, no-new-privileges, read-only root + tmpfs, PID/mem limits, non-root user (container flash mounting still open) |
+| M3 | Container sandbox weaker than documented | **Fixed** — cap-drop ALL, no-new-privileges, read-only root + tmpfs, PID/mem limits, non-root user, read-only image bind-mounts (flash works in-container on Linux) |
 | M6 | Untrusted device data in prompt; hosted egress undisclosed | **Fixed** — delimited `<device_facts>` block + size cap + egress notice |
 | M8 | Security-path test gaps; no coverage tooling | **Fixed** — `pytest-cov` 80% floor + LLM adapter/sandbox/log/CLI tests |
 | M9 | CI/supply-chain gaps | **Fixed** — SHA-pinned actions, `uv --frozen` job, pip-audit, Dependabot cooldown |
@@ -139,8 +139,9 @@ user not to power-cycle.
   so flash in container mode likely can't find the file on Windows/macOS.
   *Fixed* — hardening flags (cap-drop ALL, no-new-privileges, read-only root +
   `/tmp` tmpfs, PID/memory limits) and a non-root user added; base-image digest
-  pinning documented. Host image mounting for in-container flash remains open
-  (container mode is for the read-only missions meanwhile).
+  pinning documented; ROM images named in a command are bind-mounted read-only
+  and their paths rewritten, so `flash-rom` works in the container on Linux
+  (USB-level flashing on Windows/macOS still uses the host runner).
 - **M4. LLM plans validated for shape, not meaning `[DET][JUDG]`.** Mission
   override via payload; no per-step mission scope; `human` text unrelated to the
   command; protected-package/option checks not applied to LLM steps. *Partially

@@ -54,6 +54,32 @@ def test_hardening_present_on_windows_too():
     assert "--security-opt=no-new-privileges" in cmd
 
 
+def test_mounts_for_detects_existing_image_file(tmp_path):
+    img = tmp_path / "boot.img"
+    img.write_bytes(b"IMG")
+    cmd = ["fastboot", "flash", "boot", str(img)]
+    mounts = ContainerRunner.mounts_for(cmd)
+    assert str(img) in mounts
+    assert mounts[str(img)].startswith("/mnt/img/")
+    assert mounts[str(img)].endswith("boot.img")
+    # non-file tokens are never mounted
+    assert "flash" not in mounts and "boot" not in mounts
+
+
+def test_build_command_mounts_and_rewrites_image_path():
+    runner = ContainerRunner(image="img", platform="linux")
+    mounts = {"/host/boot.img": "/mnt/img/0_boot.img"}
+    cmd = runner.build_command(
+        ["fastboot", "flash", "boot", "/host/boot.img"], engine="docker", mounts=mounts
+    )
+    # read-only bind mount present
+    assert "-v" in cmd
+    assert "/host/boot.img:/mnt/img/0_boot.img:ro" in cmd
+    # the argv path is rewritten to the container path
+    assert "/host/boot.img" not in cmd[cmd.index("img") :]
+    assert cmd[-1] == "/mnt/img/0_boot.img"
+
+
 def test_child_env_strips_llm_api_keys(monkeypatch):
     # The device toolchain must not inherit the hosted-LLM key (audit L3).
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-secret")

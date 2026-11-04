@@ -133,6 +133,11 @@ class ContainerRunner:
         it over a loopback socket (``-H host.docker.internal``). The container
         gets just that host gateway, nothing else.
 
+    Any argv token that is an existing host file (e.g. a ROM image for
+    ``fastboot flash``) is bind-mounted **read-only** into the container and the
+    token rewritten to its in-container path, so flashing works in the sandbox
+    too (on Linux, where USB is passed through).
+
     Requires ``podman`` or ``docker`` on PATH and an image with platform-tools
     installed (``image``). Build one from ``docker/adb-tools.Dockerfile``.
     """
@@ -177,22 +182,60 @@ class ContainerRunner:
         "--memory=2g",
     )
 
-    def build_command(self, inner: list[str], engine: str) -> list[str]:
+    @staticmethod
+    def mounts_for(command: list[str]) -> dict[str, str]:
+        """Map any argv token that is an existing host file to a container path.
+
+        ``fastboot flash boot boot.img`` can only work inside the sandbox if the
+        image file is mounted in, so the toolchain can read it. We mount each
+        such file **read-only** (the sandbox never needs to modify an image) at a
+        stable ``/mnt/img/<n>_<name>`` path. Does a read-only ``isfile`` probe,
+        so it lives in ``run`` (which already does I/O), not ``build_command``.
+        """
+        mounts: dict[str, str] = {}
+        for tok in command:
+            if tok in mounts:
+                continue
+            try:
+                if os.path.isfile(tok):
+                    mounts[tok] = f"/mnt/img/{len(mounts)}_{os.path.basename(tok)}"
+            except OSError:
+                continue
+        return mounts
+
+    def build_command(
+        self, inner: list[str], engine: str, mounts: dict[str, str] | None = None
+    ) -> list[str]:
         """Wrap an inner adb/fastboot argv in a container run invocation.
 
-        Pure and deterministic (no subprocess), so it is unit-tested per OS.
+        ``mounts`` maps host file paths (as they appear in ``inner``) to the
+        read-only container paths they are bound to; those tokens are rewritten
+        to their container path so the tool reads the file from inside the
+        sandbox. Pure and deterministic given ``mounts`` (no subprocess), so it
+        is unit-tested per OS.
         """
+        mounts = mounts or {}
         argv = [engine, "run", "--rm", "-i", *self._HARDENING]
+        for host, container in mounts.items():
+            argv += ["-v", f"{host}:{container}:ro"]
+
+        def rewrite(tokens: list[str]) -> list[str]:
+            return [mounts.get(t, t) for t in tokens]
+
         if self._is_linux:
             # USB passthrough; fully network-less.
             argv += ["--network", "none", "--device=/dev/bus/usb"]
-            inner_cmd = inner
+            inner_cmd = rewrite(inner)
         else:
             # Reach the host's adb server over the Docker/Podman host gateway.
             argv += ["--add-host", "host.docker.internal:host-gateway"]
             tool, *tail = inner
+            tail = rewrite(tail)
             # adb accepts -H <host>; fastboot discovers over the same adb server.
-            inner_cmd = [tool, "-H", "host.docker.internal", *tail] if tool == "adb" else inner
+            if tool == "adb":
+                inner_cmd = [tool, "-H", "host.docker.internal", *tail]
+            else:
+                inner_cmd = [tool, *tail]
         argv += [self.image, *inner_cmd]
         return argv
 
@@ -206,4 +249,5 @@ class ContainerRunner:
                 "",
                 "no container engine found. Install podman or docker, or use --runner local.",
             )
-        return _run_subprocess(self.build_command(command, engine), timeout)
+        mounts = self.mounts_for(command)
+        return _run_subprocess(self.build_command(command, engine, mounts), timeout)

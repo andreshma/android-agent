@@ -113,10 +113,10 @@ The **LLM output** and the **device output** are both treated as untrusted.
   Dockerfile, and pin the base image by digest — see the Dockerfile comment).
 - On Windows/macOS the container reaches the host adb server, a deliberately
   narrow channel; USB is not isolated from the host there as it is on Linux.
-- Flashing *inside* the container needs the image files mounted into it; the
-  current `ContainerRunner` does not mount host paths, so container mode is
-  intended for the read-only audit/optimize missions. Flash on the host runner,
-  or mount the image directory yourself, until path mounting lands.
+- Flashing *inside* the container works on Linux: image files named in the
+  command are bind-mounted read-only and the paths rewritten, and USB is passed
+  through. On Windows/macOS the container reaches only the host adb server, so
+  USB-level fastboot flashing still belongs on the `local` runner there.
 - The container hardening flags (`--cap-drop=ALL`, read-only root, etc.) have
   been verified to build correctly but not yet exercised against a physical
   device on every engine/OS; report back if USB passthrough needs a specific
