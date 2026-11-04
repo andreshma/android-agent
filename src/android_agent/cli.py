@@ -7,6 +7,8 @@ explicit yes for HIGH-risk plans). The heavy lifting lives in the orchestrator.
 
 from __future__ import annotations
 
+from enum import Enum
+
 import typer
 from rich.console import Console
 from rich.panel import Panel
@@ -14,24 +16,59 @@ from rich.table import Table
 
 from . import consent
 from .audit_log import ActionLog
+from .bridge.allowlist import CommandDenied
 from .bridge.device import Bridge
 from .bridge.sandbox import ContainerRunner, LocalRunner
 from .capabilities.flash import FlashTargetMismatch
 from .config import Config
 from .llm.factory import make_llm
 from .models import Mission, Plan, RiskLevel
-from .orchestrator import DeviceModeError, Orchestrator, require_mode
+from .orchestrator import DeviceModeError, Orchestrator, PlanRejected, require_mode
 
 app = typer.Typer(
     help="LLM-driven agent to audit, optimize, flash and unlock YOUR OWN Android device.",
     no_args_is_help=True,
+    pretty_exceptions_show_locals=False,  # never render locals (could leak an API key)
 )
 console = Console()
 
 
+class RunnerKind(str, Enum):
+    local = "local"
+    container = "container"
+
+
+# Typer Option for --runner, shared by the commands. Enum-validated (an unknown
+# value errors instead of silently falling back), default from the env/config.
+_RUNNER_OPT = typer.Option(
+    None, "--runner", envvar="ANDROID_AGENT_RUNNER", help="Execution backend: local | container."
+)
+
+
+def _apply_runner(cfg: Config, runner: RunnerKind | None) -> Config:
+    if runner is not None:
+        cfg.runner = runner.value
+    return cfg
+
+
 def _build_bridge(cfg: Config) -> Bridge:
-    runner = ContainerRunner() if cfg.runner == "container" else LocalRunner()
-    return Bridge(runner)
+    # Fail-safe: only the exact 'container' string selects the sandbox; anything
+    # else is rejected rather than silently running unsandboxed.
+    if cfg.runner == "container":
+        return Bridge(ContainerRunner())
+    if cfg.runner != "local":
+        console.print(f"[red]Unknown runner '{cfg.runner}'. Use 'local' or 'container'.[/]")
+        raise typer.Abort()
+    return Bridge(LocalRunner())
+
+
+def _llm_kwargs(cfg: Config) -> dict:
+    """Backend-specific kwargs so documented config actually reaches the LLM."""
+    if cfg.llm_backend.lower() == "ollama":
+        return {"model": cfg.ollama_model, "host": cfg.ollama_host}
+    if cfg.llm_backend.lower() in {"anthropic", "claude"}:
+        return {"model": cfg.anthropic_model}
+    return {}
 
 
 def _show_plan(plan: Plan, *, drill_down: bool) -> None:
@@ -62,10 +99,10 @@ def _show_plan(plan: Plan, *, drill_down: bool) -> None:
 
 
 @app.command()
-def devices(runner: str = typer.Option("local", help="local | container")) -> None:
+def devices(runner: RunnerKind | None = _RUNNER_OPT) -> None:
     """List connected devices (adb + fastboot)."""
     cfg = Config.from_env()
-    cfg.runner = runner
+    cfg = _apply_runner(cfg, runner)
     bridge = _build_bridge(cfg)
     found = bridge.list_devices()
     if not found:
@@ -82,12 +119,12 @@ def run(
     serial: str = typer.Option(..., "--serial", "-s", help="Target device serial."),
     llm: str = typer.Option(None, help="Override LLM backend: ollama | anthropic"),
     drill_down: bool = typer.Option(False, "--drill-down", help="Show the raw commands too."),
-    runner: str = typer.Option("local", help="local | container"),
+    runner: RunnerKind | None = _RUNNER_OPT,
     log: bool = typer.Option(True, "--log/--no-log", help="Record actions to an audit log."),
 ) -> None:
     """Propose a plan for a mission, then run it after your confirmation."""
     cfg = Config.from_env()
-    cfg.runner = runner
+    cfg = _apply_runner(cfg, runner)
     if llm:
         cfg.llm_backend = llm
     bridge = _build_bridge(cfg)
@@ -98,13 +135,17 @@ def run(
     device = _consent(device, serial)
 
     # --- phase 1: propose ---
-    llm_impl = make_llm(cfg.llm_backend)
+    llm_impl = make_llm(cfg.llm_backend, **_llm_kwargs(cfg))
     action_log = ActionLog() if log else None
     orch = Orchestrator(llm_impl, bridge, log=action_log)
     if action_log:
         console.print(f"[dim]Logging actions to {action_log.path}[/]")
     console.print(f"[dim]Asking {llm_impl.name} to plan the '{mission.value}' mission…[/]")
-    plan = orch.propose(device, mission, request)
+    try:
+        plan = orch.propose(device, mission, request)
+    except (CommandDenied, PlanRejected) as exc:
+        console.print(f"[bold red]Rejected the proposed plan:[/] {exc}")
+        raise typer.Abort() from exc
     _show_plan(plan, drill_down=drill_down)
 
     _confirm_and_run(orch, device, plan)
@@ -131,11 +172,19 @@ def _confirm_and_run(orch: Orchestrator, device, plan: Plan) -> None:
             raise typer.Abort()
     if not typer.confirm("Run this plan now?"):
         raise typer.Abort()
-    for i, res in enumerate(orch.run(device, plan), 1):
+    results = orch.run(device, plan)
+    for i, res in enumerate(results, 1):
         mark = "[green]ok[/]" if res.ok else "[red]failed[/]"
         console.print(f"{i}. {mark} — {res.step.human}")
         if not res.ok and res.error:
             console.print(f"   [red]{res.error.strip()}[/]")
+    skipped = len(plan.steps) - len(results)
+    if skipped > 0:
+        console.print(
+            f"[yellow]Stopped after a failed step; {skipped} remaining step(s) "
+            f"were skipped. The device may be in a partial state — do not power "
+            f"it off; review the error above.[/]"
+        )
 
 
 def _resolve_or_abort(bridge: Bridge, serial: str):
@@ -158,12 +207,12 @@ def _require_mode_or_abort(device, mission: Mission) -> None:
 def debloat(
     serial: str = typer.Option(..., "--serial", "-s", help="Target device serial."),
     drill_down: bool = typer.Option(False, "--drill-down", help="Show the raw commands too."),
-    runner: str = typer.Option("local", help="local | container"),
+    runner: RunnerKind | None = _RUNNER_OPT,
     log: bool = typer.Option(True, "--log/--no-log", help="Record actions to an audit log."),
 ) -> None:
     """Disable likely-bloatware apps (deterministic, no LLM; reversible)."""
     cfg = Config.from_env()
-    cfg.runner = runner
+    cfg = _apply_runner(cfg, runner)
     bridge = _build_bridge(cfg)
     device = _resolve_or_abort(bridge, serial)
     _require_mode_or_abort(device, Mission.OPTIMIZE)
@@ -184,7 +233,7 @@ def flash_rom(
         ..., "--image", help="partition=path, e.g. --image boot=boot.img (repeatable)."
     ),
     drill_down: bool = typer.Option(False, "--drill-down", help="Show the raw commands too."),
-    runner: str = typer.Option("local", help="local | container"),
+    runner: RunnerKind | None = _RUNNER_OPT,
     log: bool = typer.Option(True, "--log/--no-log", help="Record actions to an audit log."),
 ) -> None:
     """Flash ROM images in a verified, ordered, guarded walkthrough (HIGH risk).
@@ -202,7 +251,7 @@ def flash_rom(
         images[part.strip()] = path.strip()
 
     cfg = Config.from_env()
-    cfg.runner = runner
+    cfg = _apply_runner(cfg, runner)
     bridge = _build_bridge(cfg)
     device = _resolve_or_abort(bridge, serial)
     _require_mode_or_abort(device, Mission.FLASH)
@@ -212,7 +261,7 @@ def flash_rom(
     flash = orch.capability(Mission.FLASH)
     try:
         plan = flash.build_rom_flash_plan(device, product, images)  # type: ignore[attr-defined]
-    except FlashTargetMismatch as exc:
+    except (FlashTargetMismatch, FileNotFoundError, ValueError) as exc:
         console.print(f"[bold red]Refusing to flash:[/] {exc}")
         raise typer.Abort() from exc
     _show_plan(plan, drill_down=drill_down)

@@ -3,9 +3,8 @@
 Default backend: the device's data never leaves the machine, which matters when
 auditing a phone. Talks to a local Ollama server over HTTP.
 
-This is a working skeleton: it calls Ollama's /api/chat endpoint but leaves the
-prompt->Plan parsing as a clearly marked stub, since the exact structured-output
-strategy (JSON mode / grammar) is a design choice worth doing deliberately.
+It calls Ollama's /api/chat endpoint with ``format="json"`` and parses the
+response into a ``Plan`` via the shared ``schema`` module.
 """
 
 from __future__ import annotations

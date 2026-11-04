@@ -1,44 +1,53 @@
 """Command allowlist — the core security boundary.
 
-The LLM proposes steps, but it can NEVER cause an arbitrary shell command to
-run. Every ``Step.command`` is validated here against a per-tool allowlist
-before the bridge will execute it. The first token selects the tool (adb /
-fastboot) and the second the sub-command, which must appear in the set below.
+The LLM proposes steps, but it can NEVER cause an arbitrary command to run.
+Every ``Step.command`` is validated here before the bridge will execute it.
+Validation has two layers:
 
-Rules:
-  • commands are argv lists, never shell strings (no word-splitting, no `;`)
-  • the sub-command must be explicitly allowed
-  • a small set of sub-commands is HIGH risk and gated separately upstream
+  1. **Shape** — the first tokens must match an explicit per-tool key (so
+     ``adb shell pm disable-user`` is allowed while a bare ``adb shell`` is not).
+  2. **Arguments** — the remaining tokens (the *tail*) must satisfy a per-key
+     validator. This matters because ``adb shell`` re-joins its arguments into a
+     string that the on-device shell parses, so an unvalidated argument like
+     ``$(reboot)`` would be shell-interpreted on the phone. Every key has a
+     validator; a key without one fails closed.
 
-Adding a capability means adding its sub-commands here on purpose — that is the
-point. A denied command is a bug or an attack, never something to "work around"
-by shelling out directly.
+Commands are argv lists executed with ``shell=False``, so there is no host-side
+shell. The argument validators close the device-side ``adb shell`` case and
+option-injection (a value starting with ``-``).
+
+Adding a capability means adding its sub-command AND its argument validator here
+on purpose. A denied command is a bug or an attack, never something to "work
+around" by shelling out directly.
 """
 
 from __future__ import annotations
 
-# adb sub-commands the agent is allowed to run. Grouped by the mission that
-# needs them so the boundary stays readable.
+import re
+from collections.abc import Callable
+
+from ..models import RiskLevel
+
+# adb sub-commands the agent is allowed to run, grouped by the mission.
 _ADB_ALLOWED: dict[str, str] = {
     # --- inspect / audit (read-only) ---
     "devices": "list connected devices",
     "get-state": "device connection state",
     "shell:getprop": "read a system property",
     "shell:pm list packages": "list installed packages",
-    # Specific read-only dumpsys services only — NOT a blanket `dumpsys`, since
-    # some services accept state-changing sub-commands (e.g. deviceidle).
+    # Specific read-only dumpsys services only — NOT a blanket `dumpsys`.
     "shell:dumpsys package": "read package/permission info",
     "shell:dumpsys batterystats": "read battery usage stats",
-    "shell:cmd package": "query package info",
+    # Specific read-only cmd-package verb only — NOT a blanket `cmd package`,
+    # which would also permit `uninstall` / `install-existing`.
+    "shell:cmd package list packages": "list packages with uids",
     # --- optimize (reversible) ---
     "shell:pm disable-user": "disable (not remove) a package for the user",
     "shell:pm enable": "re-enable a previously disabled package",
     "shell:pm clear": "clear an app's cache/data",
-    # --- backup before anything risky ---
-    "backup": "create a device backup",
 }
 
-# fastboot sub-commands. Everything here is HIGH risk by nature.
+# fastboot sub-commands.
 _FASTBOOT_ALLOWED: dict[str, str] = {
     "devices": "list devices in bootloader mode",
     "getvar": "read a bootloader variable (e.g. unlocked state)",
@@ -50,12 +59,8 @@ _FASTBOOT_ALLOWED: dict[str, str] = {
 
 _TOOLS = {"adb": _ADB_ALLOWED, "fastboot": _FASTBOOT_ALLOWED}
 
-# Authoritative risk per allowlist key (``validate`` returns ``tool:key``).
-# This is the source of truth for how dangerous a command is — the LLM's
-# self-declared risk is never trusted over this. Anything not listed is treated
-# as HIGH (fail-safe), though ``validate`` denies unknown commands first.
-from ..models import RiskLevel  # noqa: E402  (kept near the data it annotates)
-
+# Authoritative risk per full key (``tool:key``). The LLM's self-declared risk
+# is never trusted over this; an allowlisted-but-unmapped key defaults to HIGH.
 _RISK: dict[str, RiskLevel] = {
     "adb:devices": RiskLevel.NONE,
     "adb:get-state": RiskLevel.NONE,
@@ -63,11 +68,10 @@ _RISK: dict[str, RiskLevel] = {
     "adb:shell:pm list packages": RiskLevel.NONE,
     "adb:shell:dumpsys package": RiskLevel.NONE,
     "adb:shell:dumpsys batterystats": RiskLevel.NONE,
-    "adb:shell:cmd package": RiskLevel.NONE,
+    "adb:shell:cmd package list packages": RiskLevel.NONE,
     "adb:shell:pm disable-user": RiskLevel.LOW,
     "adb:shell:pm enable": RiskLevel.LOW,
     "adb:shell:pm clear": RiskLevel.LOW,
-    "adb:backup": RiskLevel.LOW,
     "fastboot:devices": RiskLevel.NONE,
     "fastboot:getvar": RiskLevel.NONE,
     "fastboot:reboot": RiskLevel.LOW,
@@ -76,25 +80,63 @@ _RISK: dict[str, RiskLevel] = {
     "fastboot:flash": RiskLevel.HIGH,
 }
 
+# Safe value shapes. All forbid shell metacharacters by construction.
+_PKG = re.compile(r"^[A-Za-z][A-Za-z0-9_.]*$")  # package id
+_PROP = re.compile(r"^[A-Za-z0-9_.\-]+$")  # system property name
+_VAR = re.compile(r"^[A-Za-z0-9_.\-]+$")  # fastboot getvar variable
+_PART = re.compile(r"^[A-Za-z0-9_]+$")  # fastboot partition name
+
+
+def _is_value(value: str) -> bool:
+    """A non-option, non-empty token with no shell-significant characters."""
+    return bool(value) and not value.startswith("-") and not _META.search(value)
+
+
+# Per-full-key argument validators. ``tail`` is the argv after the matched key
+# (and after any stripped ``-s <serial>``). Every key MUST have one; a missing
+# validator fails closed in ``validate``.
+_ARGS: dict[str, Callable[[list[str]], bool]] = {
+    "adb:devices": lambda t: t in ([], ["-l"]),
+    "adb:get-state": lambda t: t == [],
+    "adb:shell:getprop": lambda t: len(t) <= 1 and all(_PROP.fullmatch(x) for x in t),
+    "adb:shell:pm list packages": lambda t: all(x in {"-3", "-d", "-e", "-s", "-U"} for x in t),
+    "adb:shell:dumpsys package": lambda t: len(t) == 1 and bool(_PKG.fullmatch(t[0])),
+    "adb:shell:dumpsys batterystats": lambda t: t == [],
+    "adb:shell:cmd package list packages": lambda t: all(x in {"-U", "-3", "-d", "-e"} for x in t),
+    "adb:shell:pm disable-user": lambda t: len(t) == 1 and bool(_PKG.fullmatch(t[0])),
+    "adb:shell:pm enable": lambda t: len(t) == 1 and bool(_PKG.fullmatch(t[0])),
+    "adb:shell:pm clear": lambda t: len(t) == 1 and bool(_PKG.fullmatch(t[0])),
+    "fastboot:devices": lambda t: t == [],
+    "fastboot:getvar": lambda t: len(t) == 1 and bool(_VAR.fullmatch(t[0])),
+    "fastboot:flashing unlock": lambda t: t == [],
+    "fastboot:flashing lock": lambda t: t == [],
+    # partition name constrained; image path only guarded against option-injection
+    # (it runs host-side with shell=False, so it is not shell-parsed).
+    "fastboot:flash": lambda t: len(t) == 2 and bool(_PART.fullmatch(t[0])) and _is_value(t[1]),
+    "fastboot:reboot": lambda t: t in ([], ["bootloader"]),
+}
+
+# Shell-significant characters. `adb shell` re-parses its arguments on the
+# device, so any of these in a token is rejected outright as a second line of
+# defense behind the per-key validators.
+_META = re.compile(r"[;&|$`><\n\r(){}*?!\\\"']")
+
 
 class CommandDenied(RuntimeError):
-    """Raised when a proposed command is not on the allowlist."""
+    """Raised when a proposed command is not permitted."""
 
 
-def _match_key(tool: str, argv: list[str]) -> str | None:
-    """Find the longest allowlist key that prefixes this argv.
-
-    Lets us allow a specific ``shell pm disable-user`` while still denying an
-    arbitrary ``shell`` command.
-    """
-    allowed = _TOOLS.get(tool, {})
-    # Build candidate keys from progressively longer argv prefixes, joining
-    # the `shell` sub-command with ':' to match the allowlist spelling.
+def _strip_selector(argv: list[str]) -> list[str]:
+    """argv after the tool, with a leading ``-s <serial>`` removed."""
     rest = argv[1:]
-    # Skip a leading device selector (`-s <serial>`), which both adb and
-    # fastboot accept before the real sub-command.
     if len(rest) >= 2 and rest[0] == "-s":
         rest = rest[2:]
+    return rest
+
+
+def _match_key(tool: str, rest: list[str]) -> str | None:
+    """Longest allowlist key that prefixes ``rest`` (selector already stripped)."""
+    allowed = _TOOLS.get(tool, {})
     if rest and rest[0] == "shell":
         prefix = "shell:" + " ".join(rest[1:])
     else:
@@ -105,32 +147,45 @@ def _match_key(tool: str, argv: list[str]) -> str | None:
     return None
 
 
-def validate(command: list[str]) -> str:
-    """Validate an argv command. Returns the matched allowlist key or raises.
+def _key_token_count(key: str) -> int:
+    """How many argv tokens the matched key consumes."""
+    if key.startswith("shell:"):
+        sub = key[len("shell:") :]
+        return 1 + (len(sub.split()) if sub else 0)
+    return len(key.split())
 
-    The returned key is what callers use to decide HIGH-risk gating.
-    """
+
+def validate(command: list[str]) -> str:
+    """Validate an argv command (shape + arguments). Returns the full key
+    ``tool:key`` or raises ``CommandDenied``."""
     if not command:
         raise CommandDenied("empty command")
     tool = command[0]
     if tool not in _TOOLS:
         raise CommandDenied(f"tool {tool!r} is not allowed (only: {', '.join(_TOOLS)})")
-    if any(";" in tok or "&&" in tok or "|" in tok for tok in command):
-        raise CommandDenied("shell metacharacters are not allowed in a command")
-    key = _match_key(tool, command)
+    if any(_META.search(tok) for tok in command):
+        raise CommandDenied("shell-significant characters are not allowed in a command")
+
+    rest = _strip_selector(command)
+    key = _match_key(tool, rest)
     if key is None:
         raise CommandDenied(
             f"{tool} sub-command not on allowlist: {' '.join(command[1:]) or '(none)'}"
         )
-    return f"{tool}:{key}"
+    full_key = f"{tool}:{key}"
+
+    tail = rest[_key_token_count(key) :]
+    validator = _ARGS.get(full_key)
+    if validator is None or not validator(tail):
+        raise CommandDenied(f"arguments not permitted for {full_key}: {' '.join(tail) or '(none)'}")
+    return full_key
 
 
 def risk_for(command: list[str]) -> RiskLevel:
     """Authoritative risk for a command, derived from the allowlist.
 
     Validates first (raising ``CommandDenied`` if not permitted), then returns
-    the mapped risk. An allowlisted-but-unmapped command defaults to HIGH so a
-    new entry is never silently treated as safe.
+    the mapped risk. An allowlisted-but-unmapped key defaults to HIGH so a new
+    entry is never silently treated as safe.
     """
-    full_key = validate(command)
-    return _RISK.get(full_key, RiskLevel.HIGH)
+    return _RISK.get(validate(command), RiskLevel.HIGH)

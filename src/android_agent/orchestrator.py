@@ -18,6 +18,7 @@ from __future__ import annotations
 from .audit_log import ActionLog
 from .bridge import allowlist
 from .bridge.device import Bridge
+from .capabilities import bloatware
 from .capabilities.audit import AuditCapability
 from .capabilities.base import Capability
 from .capabilities.flash import FlashCapability
@@ -28,6 +29,39 @@ from .llm.base import LLM
 from .models import Device, DeviceMode, Mission, Plan, RiskLevel
 
 _RISK_ORDER = [RiskLevel.NONE, RiskLevel.LOW, RiskLevel.HIGH]
+
+# Which allowlist keys each mission may use. A proposed plan whose step falls
+# outside its mission's set is rejected — so e.g. an `audit` plan can never
+# carry a `fastboot flash` step, independent of the mode guard.
+_READONLY_ADB = {
+    "adb:devices",
+    "adb:get-state",
+    "adb:shell:getprop",
+    "adb:shell:pm list packages",
+    "adb:shell:dumpsys package",
+    "adb:shell:dumpsys batterystats",
+    "adb:shell:cmd package list packages",
+}
+MISSION_KEYS: dict[Mission, set[str]] = {
+    Mission.AUDIT: _READONLY_ADB,
+    Mission.OPTIMIZE: _READONLY_ADB
+    | {"adb:shell:pm disable-user", "adb:shell:pm enable", "adb:shell:pm clear"},
+    Mission.FLASH: {"fastboot:devices", "fastboot:getvar", "fastboot:flash", "fastboot:reboot"},
+    Mission.UNLOCK: {
+        "fastboot:devices",
+        "fastboot:getvar",
+        "fastboot:flashing unlock",
+        "fastboot:flashing lock",
+        "fastboot:reboot",
+    },
+}
+
+# pm verbs that act on a package the operator might not mean to touch.
+_PM_PACKAGE_KEYS = {
+    "adb:shell:pm disable-user",
+    "adb:shell:pm clear",
+    "adb:shell:pm enable",
+}
 
 # Which connection mode each mission requires. audit/optimize talk to a booted
 # device over adb; flash/unlock need the bootloader (fastboot).
@@ -58,13 +92,31 @@ def require_mode(device: Device, mission: Mission) -> None:
         )
 
 
+class PlanRejected(RuntimeError):
+    """Raised when a proposed plan is out of scope for its mission."""
+
+
 def annotate_plan_risk(plan: Plan) -> None:
-    """Validate every step against the allowlist and set each step's risk to the
-    authoritative level derived from its command (never below what the LLM
-    declared). Raises ``allowlist.CommandDenied`` if any command is not
-    permitted, rejecting the whole plan before the user can confirm it."""
+    """Validate and clamp a proposed plan before the user can confirm it.
+
+    For every step: (1) validate the command against the allowlist (raises
+    ``CommandDenied`` on anything not permitted), (2) reject it if the command
+    is outside the mission's allowed set, (3) reject a pm action that targets a
+    protected/core package, and (4) raise each step's risk to the authoritative
+    level derived from the command (never downgrades)."""
+    allowed = MISSION_KEYS.get(plan.mission, set())
     for step in plan.steps:
-        derived = allowlist.risk_for(step.command)  # raises if not allowlisted
+        key = allowlist.validate(step.command)  # raises if not allowlisted
+        if key not in allowed:
+            raise PlanRejected(
+                f"step '{' '.join(step.command)}' ({key}) is not allowed for the "
+                f"'{plan.mission.value}' mission"
+            )
+        if key in _PM_PACKAGE_KEYS and step.command and bloatware.is_protected(step.command[-1]):
+            raise PlanRejected(
+                f"refusing to {key.split(':')[-1]} a protected/core package: {step.command[-1]}"
+            )
+        derived = allowlist.risk_for(step.command)
         if _RISK_ORDER.index(derived) > _RISK_ORDER.index(step.risk):
             step.risk = derived
 
@@ -118,4 +170,9 @@ class Orchestrator:
             if self.log:
                 self.log.step_executed(device.serial, result)
             results.append(result)
+            # Stop the sequence if a state-changing step fails — continuing a
+            # half-done flash (or any LOW/HIGH step) risks bricking the device.
+            # Remaining steps are reported as skipped by the caller.
+            if not result.ok and step.risk is not RiskLevel.NONE:
+                break
         return results

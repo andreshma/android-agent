@@ -23,15 +23,17 @@ open to discussion.
 
 ## Good first contributions
 
-Search for `TODO(contributors)`:
+See the open items in the latest [`audits/`](audits/) report and
+[CHANGELOG.md](CHANGELOG.md). Good candidates:
 
-- Parse `adb devices -l` / `fastboot devices` in `bridge.device.list_devices`.
-- Implement structured-output `propose_plan` for Ollama (JSON mode) and
-  Anthropic (tool use).
-- Implement `bridge.sandbox.ContainerRunner` (Podman/Docker, `--network none`,
-  USB passthrough).
-- Permission enrichment in `capabilities.audit` (flag mic/camera/location).
-- Strict model/variant verification in `capabilities.flash.verify_target`.
+- Harden `ContainerRunner` (drop capabilities, non-root `USER`, pin the base
+  image by digest, read-only image mount) — audit M3.
+- Add `pytest-cov` with a coverage floor, plus tests for the LLM adapters
+  (`httpx.MockTransport` / a mocked Anthropic client) — audit M8.
+- CI supply-chain jobs: SHA-pin actions, Dependabot cooldown, `uv sync
+  --frozen`, a secret/SAST/SBOM job — audit M9.
+- Wrap device facts in a delimited "data, not instructions" block and cap their
+  size before sending to the LLM — audit M6.
 
 ## Dev setup
 

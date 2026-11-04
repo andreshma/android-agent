@@ -200,7 +200,11 @@ and the red-team pass in [docs/ADVERSARIAL_REVIEW.md](docs/ADVERSARIAL_REVIEW.md
 
 Early **alpha**. Architecture, the security boundary, the two-phase flow, device
 discovery, all five commands, the container sandbox and flash verification are in
-place and covered by **61 tests** (ruff + mypy clean, CI on Windows + Linux).
+place and covered by the test suite (ruff + mypy clean, CI on Windows + Linux).
+
+A 360° audit on 2026-11-04 (AMBER; 0 critical, 5 High, all since fixed) and a
+red-team pass informed the current security hardening — see
+[`audits/`](audits/) and [docs/ADVERSARIAL_REVIEW.md](docs/ADVERSARIAL_REVIEW.md).
 
 The one thing the suite can't cover is a physical phone — unit/CLI tests use fake
 bridges. See [docs/TESTING.md](docs/TESTING.md) for the manual on-device
@@ -215,9 +219,9 @@ issue tracker.
 - [Threat model](docs/THREAT_MODEL.md) — STRIDE analysis
 - [Adversarial review](docs/ADVERSARIAL_REVIEW.md) — red-team pass
 - [Testing](docs/TESTING.md) — automated suite + manual on-device checklist
+- Audit reports: [`audits/`](audits/)
 - [Security policy](SECURITY.md) · [Contributing](CONTRIBUTING.md) ·
   [Code of Conduct](CODE_OF_CONDUCT.md) · [Changelog](CHANGELOG.md)
-- Audit reports: [`audits/`](audits/)
 
 ## License
 

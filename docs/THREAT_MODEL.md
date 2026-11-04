@@ -40,8 +40,12 @@ The **LLM output** and the **device output** are both treated as untrusted.
 
 ### Tampering
 - *LLM proposes a destructive/arbitrary command.* Mitigation: the allowlist
-  validates every `argv`; non-allowlisted sub-commands and shell metacharacters
-  are rejected regardless of what the model asked for.
+  validates every `argv` by **shape and arguments** — the sub-command must match
+  a key AND its arguments must satisfy a per-key validator (regex per position,
+  fail-closed), so free-form arguments can't carry shell syntax that `adb shell`
+  would re-parse on the device. Shell-significant characters are also rejected
+  outright. (This argument layer was added after the 2026-11-04 audit found the
+  original check validated only the sub-command prefix — see `audits/`.)
 - *Malicious data on the device influences the plan* (prompt injection via an
   app name, property, etc.). Mitigation: device output is data, never executed;
   any command it tries to induce still has to pass the allowlist.
@@ -52,8 +56,10 @@ The **LLM output** and the **device output** are both treated as untrusted.
   the allowlist, and a non-allowlisted command rejects the whole plan.
 
 ### Repudiation
-- *No record of what ran.* Partial today (CLI prints results). Planned: an
-  append-only action log of proposed vs. executed steps. See open items.
+- *No record of what ran.* Mitigation: an append-only action log
+  (`audit_log.py`) records proposed plans and executed steps per device. It is
+  best-effort (a write failure never blocks a device operation) and not yet
+  tamper-evident — hash-chaining is an open item.
 
 ### Information Disclosure
 - *Device data leaving the machine.* Mitigation: Ollama local backend is the
@@ -66,8 +72,11 @@ The **LLM output** and the **device output** are both treated as untrusted.
   confirmation, a required backup step, and strict model/variant verification
   (`FlashCapability.require_target`) that refuses to flash unless the device's
   `product` matches the image's declared target — and refuses outright when the
-  product can't be read (fail-safe).
-- *Hung toolchain.* Mitigation: every bridge call has a timeout.
+  product can't be read (fail-safe). A failed state-changing step also stops the
+  rest of the sequence rather than continuing a half-done flash.
+- *Hung toolchain.* Mitigation: bridge calls have per-key timeouts. Reads use a
+  120 s default; flashing and bootloader unlock have **no** timeout, because
+  killing a partition write mid-flight is itself a brick risk.
 
 ### Elevation of Privilege
 - *Toolchain or device payload reaching the host/network.* Mitigation: the

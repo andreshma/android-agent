@@ -45,6 +45,8 @@ def test_with_serial_skips_devices_subcommand():
     assert with_serial(["adb", "devices", "-l"], "ABCD1234") == ["adb", "devices", "-l"]
 
 
-def test_with_serial_is_idempotent():
+def test_with_serial_replaces_supplied_selector():
+    # A plan that tries to target another device is forced onto the authorized
+    # serial — the supplied -s is stripped, not honored (security invariant).
     cmd = ["adb", "-s", "OTHER", "shell", "getprop"]
-    assert with_serial(cmd, "ABCD1234") == cmd
+    assert with_serial(cmd, "ABCD1234") == ["adb", "-s", "ABCD1234", "shell", "getprop"]

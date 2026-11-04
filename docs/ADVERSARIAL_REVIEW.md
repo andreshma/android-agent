@@ -1,5 +1,14 @@
 # Adversarial Review
 
+> **Honesty note (2026-11-04).** An independent 360° audit run after this pass
+> found that two scenarios rated "holds" below were in fact exploitable at the
+> time: the allowlist validated a command's *shape* but not its *arguments*
+> (so `adb shell getprop ro.x $(reboot)` passed — scenario 1), and `with_serial`
+> honored a supplied `-s OTHER` (scenario 4). Both are now fixed (per-key
+> argument validators; the selector is always stripped and replaced). The
+> lesson: a self-run red team is not a substitute for an independent audit. See
+> [`../audits/`](../audits/) for the full report and remediation status.
+
 A red-team pass over android-agent: instead of checking that the happy path
 works, each scenario below assumes an attacker (a malicious device payload, a
 compromised or manipulated LLM, a hostile input) and asks *what could go wrong,
@@ -18,13 +27,15 @@ holds **with a caveat**, or required a **fix** (applied in this pass).
 
 ## Scenarios
 
-### 1. Prompt injection from device data → arbitrary command — **HOLDS**
-A malicious app sets its label to `; rm -rf /` or instructs the model to run a
-destructive command. The model might echo it into a plan.
-**Why it holds:** commands are `argv` lists executed with `shell=False`, and
-every command is checked against the allowlist (`bridge/allowlist.py`). Injected
-text can at most request a command that isn't on the allowlist → denied. Shell
-metacharacters are rejected outright.
+### 1. Prompt injection from device data → arbitrary command — **FIXED after audit**
+A malicious app sets its label to `; rm -rf /` or `$(reboot)`, or instructs the
+model to run a destructive command, and the model echoes it into a plan.
+**Status:** `argv` + `shell=False` blocks host-side shell injection, but the
+audit showed the allowlist originally checked only the sub-command prefix, so a
+free-form argument like `$(reboot)` after `getprop` reached the *device* shell
+(which re-parses `adb shell` args). Now fixed: each key has an argument
+validator (regex per position, fail-closed) and the metacharacter set is
+expanded, so injected arguments are denied.
 
 ### 2. LLM understates risk to skip the HIGH-risk gate — **HOLDS (fixed earlier)**
 A manipulated plan labels `fastboot flashing unlock` as `risk: low` to avoid the
@@ -40,11 +51,13 @@ where fastboot commands can't execute; (b) every step is still allowlist-checked
 and risk-derived at propose time, so a destructive step is surfaced as HIGH and
 rejected if not permitted.
 
-### 4. Redirect an action to another device — **HOLDS**
-The plan targets a different serial (another phone on the same host).
-**Why it holds:** the authorized serial is injected into every command
-(`with_serial`), overriding any `-s` the plan tried to set; the consent gate is
-per-serial.
+### 4. Redirect an action to another device — **FIXED after audit**
+The plan targets a different serial (another phone on the same host) by setting
+`-s OTHER` itself.
+**Status:** the audit showed `with_serial` originally returned the command
+unchanged when `-s` was already present, so `-s OTHER` was honored. Now fixed:
+any supplied selector is stripped and replaced with the authorized serial, so an
+action can only ever hit the consented device.
 
 ### 5. Flash an image for the wrong model → brick — **HOLDS**
 The operator (or a bad instruction) points a Pixel image at a different device.
@@ -91,10 +104,10 @@ lot of RAM. Streaming/bounded reads are a possible future hardening.
 
 | # | Scenario | Verdict |
 |---|---|---|
-| 1 | Prompt injection → command | Holds |
+| 1 | Prompt injection → command | **Fixed after audit** |
 | 2 | Understated risk | Holds |
-| 3 | Off-mission command | Holds |
-| 4 | Wrong-device targeting | Holds |
+| 3 | Off-mission command | Holds (mission-scope enforced) |
+| 4 | Wrong-device targeting | **Fixed after audit** |
 | 5 | Wrong-model flash | Holds |
 | 6 | Option injection (partition/image) | **Fixed this pass** |
 | 7 | Log injection | Holds |
@@ -103,6 +116,9 @@ lot of RAM. Streaming/bounded reads are a possible future hardening.
 | 10 | Resource exhaustion | Holds (bounded by timeout) |
 
 The security model (allowlist + consent gate + authoritative risk + serial
-injection + target verification) held against every command-level attack. The
-one gap found — option injection through flash arguments — was fixed in this
-pass. Remaining caveats are documented in [THREAT_MODEL.md](THREAT_MODEL.md).
+injection + target verification) is sound in design. This self-run pass found
+and fixed option injection (scenario 6); the independent 360° audit then found
+two more real gaps this pass had wrongly rated "holds" (scenarios 1 and 4),
+which are now fixed with per-key argument validation and mandatory serial
+replacement. Remaining caveats are in [THREAT_MODEL.md](THREAT_MODEL.md) and the
+audit's open items in [`../audits/`](../audits/).

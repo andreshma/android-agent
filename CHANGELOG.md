@@ -7,6 +7,26 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Security
+- **Allowlist now validates arguments, not just the sub-command** (audit H1):
+  per-key argument validators (regex per position, fail-closed) plus an expanded
+  shell-metacharacter check, closing device-side `adb shell` injection like
+  `getprop ro.x $(reboot)`.
+- **Serial is always forced** (audit H2): `with_serial` strips any supplied
+  `-s <serial>` and injects the authorized one, so a plan can't target another
+  connected device.
+- **`cmd package` restricted** (audit H3): only `cmd package list packages` is
+  allowed; `uninstall`/`install-existing` are denied. `adb backup` removed
+  (unused; `-f <path>` was a host-file-overwrite vector).
+- **Flash safety** (audit H4/H5): a failed state-changing step stops the rest of
+  the sequence; ROM-flash checks every image file exists; `fastboot flash` and
+  bootloader unlock have no timeout (killing a write mid-flight bricks).
+- **Mission-scope + protected packages** (audit M4): a proposed plan is rejected
+  if a step is outside its mission's allowed commands, or disables/clears a
+  protected core package.
+- **Option-injection guard**: partition/image values starting with `-` are
+  rejected (red-team scenario 6).
+- Security docs reworded to match verified behaviour (audit M7); the self-run
+  adversarial review corrected where the audit proved it over-optimistic.
 - **Tightened `dumpsys` allowlist**: replaced the blanket `shell:dumpsys` with
   specific read-only services (`dumpsys package`, `dumpsys batterystats`), so
   state-changing dumpsys sub-commands (e.g. `deviceidle`) are no longer allowed.
@@ -21,6 +41,11 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 - `python -m android_agent` entry point.
+- 360° audit report + CycloneDX SBOM under `audits/`.
+- `--runner` is now an Enum validated by Typer and honours `ANDROID_AGENT_RUNNER`
+  (audit M1); documented Ollama host/model config now reaches the backend
+  (audit M2); `ANDROID_AGENT_ANTHROPIC_MODEL` added.
+- Tracebacks no longer render locals (could leak an API key).
 - `uv.lock` for reproducible installs (`uv sync --all-extras`).
 - CLI-level tests (`typer.testing.CliRunner`) covering the consent → confirm →
   execute flow, mode guard, and consent decline.

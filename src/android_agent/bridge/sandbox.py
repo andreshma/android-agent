@@ -54,7 +54,7 @@ def resolve_tool(name: str) -> str | None:
     return shutil.which(name)
 
 
-def _run_subprocess(argv: list[str], timeout: float) -> RunOutput:
+def _run_subprocess(argv: list[str], timeout: float | None) -> RunOutput:
     """Execute an argv list with ``shell=False`` and capture its output."""
     try:
         proc = subprocess.run(  # noqa: S603 - argv list, shell=False, allowlisted upstream
@@ -72,13 +72,13 @@ def _run_subprocess(argv: list[str], timeout: float) -> RunOutput:
 
 
 class Runner(Protocol):
-    def run(self, command: list[str], timeout: float = 120.0) -> RunOutput: ...
+    def run(self, command: list[str], timeout: float | None = 120.0) -> RunOutput: ...
 
 
 class LocalRunner:
     """Run the toolchain directly on the host."""
 
-    def run(self, command: list[str], timeout: float = 120.0) -> RunOutput:
+    def run(self, command: list[str], timeout: float | None = 120.0) -> RunOutput:
         if not command:
             return RunOutput(2, "", "empty command")
         exe = resolve_tool(command[0])
@@ -154,7 +154,7 @@ class ContainerRunner:
         argv += [self.image, *inner_cmd]
         return argv
 
-    def run(self, command: list[str], timeout: float = 120.0) -> RunOutput:
+    def run(self, command: list[str], timeout: float | None = 120.0) -> RunOutput:
         if not command:
             return RunOutput(2, "", "empty command")
         engine = self.engine()

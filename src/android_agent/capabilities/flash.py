@@ -11,6 +11,8 @@ the capability is built around guardrails:
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from ..bridge import parse
 from ..models import Device, DeviceMode, Mission, Plan, RiskLevel, Step
 from .base import Capability
@@ -115,10 +117,14 @@ class FlashCapability(Capability):
         """Deterministic, guarded walkthrough to flash a ROM (e.g. LineageOS).
 
         The caller MUST have confirmed the device is unlocked and backed up.
-        This verifies the target first (raising on mismatch), then emits an
-        ordered flash step per partition plus a final reboot.
+        This verifies the target first (raising on mismatch) and checks every
+        image file exists, then emits an ordered flash step per partition plus a
+        final reboot.
         """
         self.require_target(device, expected_product)  # fail-safe before any step
+        for partition, image in images.items():
+            if not Path(image).is_file():
+                raise FileNotFoundError(f"image for '{partition}' not found: {image}")
         ordered = self.order_partitions(images)
         steps = [
             self.flash_partition_step(device.serial, partition, image)
