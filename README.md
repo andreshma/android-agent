@@ -89,9 +89,13 @@ tested (19 tests). Working today:
 - ✅ strict model/variant verification before any `fastboot flash` (fail-safe:
   refuses to flash when the device product can't be confirmed)
 
-Future ideas live in the issue tracker. Good next steps: richer optimize
-heuristics (battery/startup), a LineageOS flash walkthrough built on the verified
-target, and a `log` sub-command to review the action trail.
+- ✅ `debloat` — deterministic (no-LLM) detection & reversible disabling of
+  likely-bloatware apps (OEM/carrier/preinstalled bundles; core apps protected)
+- ✅ `flash-rom` — verified, ordered, guarded ROM-flash walkthrough built on the
+  target check
+- ✅ `log` — review the recorded action trail
+
+The CLI now has: `devices`, `run <mission>`, `debloat`, `flash-rom`, `log`.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 
@@ -119,6 +123,9 @@ pytest
 android-agent --help
 android-agent devices
 android-agent run audit "which apps can use my microphone?" -s <SERIAL> --drill-down
+android-agent debloat -s <SERIAL> --drill-down
+android-agent flash-rom -s <SERIAL> --product redfin --image boot=boot.img --image system=system.img
+android-agent log -s <SERIAL>
 ```
 
 ## Documentation

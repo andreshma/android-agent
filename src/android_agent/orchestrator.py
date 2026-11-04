@@ -28,7 +28,9 @@ from .models import Device, Mission, Plan
 
 
 class Orchestrator:
-    def __init__(self, llm: LLM, bridge: Bridge, log: ActionLog | None = None) -> None:
+    def __init__(self, llm: LLM | None, bridge: Bridge, log: ActionLog | None = None) -> None:
+        # ``llm`` may be None for deterministic plans (e.g. debloat, ROM flash)
+        # that don't need a model; only ``propose`` requires one.
         self.llm = llm
         self.bridge = bridge
         self.log = log
@@ -45,6 +47,8 @@ class Orchestrator:
 
     def propose(self, device: Device, mission: Mission, request: str) -> Plan:
         """Phase 1: gather read-only facts and ask the LLM for a plan."""
+        if self.llm is None:
+            raise RuntimeError("propose() needs an LLM backend; none was configured.")
         facts = self.inspect.gather_facts(device)
         facts.update(self._caps[mission].gather_facts(device))
         plan = self.llm.propose_plan(mission=mission, request=request, device_facts=facts)

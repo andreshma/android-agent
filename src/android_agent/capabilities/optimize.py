@@ -7,7 +7,8 @@ roll back. Nothing is removed permanently.
 
 from __future__ import annotations
 
-from ..models import Device, RiskLevel, Step
+from ..models import Device, Mission, Plan, RiskLevel, Step
+from . import bloatware, permissions
 from .base import Capability
 
 
@@ -15,19 +16,49 @@ class OptimizeCapability(Capability):
     mission = "optimize"
 
     def gather_facts(self, device: Device) -> dict:
-        packages = self.bridge.execute(
+        installed = self.bridge.execute(
+            ["adb", "-s", device.serial, "shell", "pm", "list", "packages"]
+        )
+        disabled = self.bridge.execute(
             ["adb", "-s", device.serial, "shell", "pm", "list", "packages", "-d"]
         )
-        return {"disabled_packages_raw": packages.stdout}
+        installed_pkgs = permissions.parse_package_list(installed.stdout)
+        candidates = bloatware.detect_bloatware(installed_pkgs)
+        return {
+            "installed_count": len(installed_pkgs),
+            "disabled_packages": permissions.parse_package_list(disabled.stdout),
+            "bloatware_candidates": candidates,
+        }
 
     @staticmethod
-    def disable_package_step(serial: str, package: str) -> Step:
+    def disable_package_step(serial: str, package: str, reason: str = "") -> Step:
         """Build a reversible step to disable a package for the current user."""
+        why = f" — {reason}" if reason else ""
         return Step(
             capability="optimize",
-            human=f"Disable the app '{package}' (it stays installed and can be re-enabled).",
+            human=f"Disable '{package}'{why}. It stays installed and can be re-enabled.",
             command=["adb", "-s", serial, "shell", "pm", "disable-user", package],
             risk=RiskLevel.LOW,
             reversible=True,
             undo=["adb", "-s", serial, "shell", "pm", "enable", package],
         )
+
+    def build_debloat_plan(self, device: Device) -> Plan:
+        """A deterministic plan (no LLM) that disables the detected bloatware.
+
+        Each step is reversible; the operator still confirms before it runs.
+        """
+        facts = self.gather_facts(device)
+        candidates: dict[str, str] = facts["bloatware_candidates"]
+        steps = [
+            self.disable_package_step(device.serial, pkg, reason)
+            for pkg, reason in sorted(candidates.items())
+        ]
+        summary = (
+            f"Disable {len(steps)} likely-bloatware app(s) found on the device. "
+            "All changes are reversible (the apps stay installed and can be "
+            "re-enabled)."
+            if steps
+            else "No likely-bloatware apps were detected. Nothing to do."
+        )
+        return Plan(mission=Mission.OPTIMIZE, summary=summary, steps=steps)
