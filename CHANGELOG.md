@@ -7,6 +7,13 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Experimental Cuttlefish flash workflow** (`.github/workflows/cuttlefish.yml`):
+  a manual, non-blocking (`workflow_dispatch` + `continue-on-error`) job that
+  launches a Cuttlefish virtual device — the only virtual Android with a real
+  `fastbootd` — and probes driving `android-agent flash-rom` against it. Best-
+  effort: the host-`fastboot` ↔ Cuttlefish-`fastbootd` wiring is undocumented
+  upstream, so it prints diagnostics at each stage. Not equivalent to a physical
+  device; see [docs/TESTING.md](docs/TESTING.md).
 - **Real-subprocess flash integration test** (`tests/test_flash_integration.py`):
   drives the full `flash-rom` flow through the **real execution path** — an
   executable `adb`/`fastboot` stub pointed to by the env overrides, so

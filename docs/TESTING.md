@@ -51,6 +51,18 @@ exercised against real hardware by the maintainer** — they rest on the test
 suite and the manual checklist below. Treat them accordingly and test on a
 spare/own device you are prepared to wipe.
 
+### Experimental: Cuttlefish (`.github/workflows/cuttlefish.yml`)
+
+Cuttlefish is Google's virtual Android device and the only virtual target with a
+real `fastbootd`. A **manual, non-blocking** workflow (`workflow_dispatch`,
+`continue-on-error`) launches a Cuttlefish device in CI and probes whether the
+host `fastboot` can drive its `fastbootd` to run `android-agent flash-rom`. It is
+**best-effort/experimental**: the host-`fastboot` ↔ Cuttlefish-`fastbootd` wiring
+is not documented upstream, so the job prints diagnostics at each stage. Even a
+successful run is **not** equivalent to a physical phone (virtual logical
+partitions, no real bootloader/brick risk) — a real device remains the only true
+flash validation.
+
 ## Manual testing against a real device
 
 The unit tests use fake bridges, so the one thing they can't cover is talking to
