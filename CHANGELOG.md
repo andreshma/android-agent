@@ -7,6 +7,22 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Live `optimize` read path in CI**: the `emulator-smoke` job now also runs
+  the `optimize` mission's read-only fact gathering against the booted emulator
+  — `pm list packages`, bloatware detection and the battery ranking
+  (`battery.top_power_consumers` over real `dumpsys batterystats`) — so the
+  ranking is exercised live, not only against captured output. Nothing is
+  disabled; it stays read-only.
+- **Container-runner CI job** (`container-runner`, informational): builds the
+  `docker/adb-tools.Dockerfile` sandbox image, **Trivy-scans** it (fails on an
+  unfixed CRITICAL), runs `adb` under the full hardening flags, and exercises
+  the `--runner container` path end-to-end. Raises the container runner from
+  "command construction tested" to "image builds, is scanned and runs" (real
+  flashing still needs a physical device).
+- **Gitflow + branch protection**: `develop` integration branch (now the default)
+  alongside `main`; both protected (no direct pushes, PR + green CI required).
+  CI runs on `develop` too. The branching model is documented in
+  [CONTRIBUTING.md](CONTRIBUTING.md).
 - **Experimental Cuttlefish flash workflow** (`.github/workflows/cuttlefish.yml`):
   a manual, non-blocking (`workflow_dispatch` + `continue-on-error`) job that
   launches a Cuttlefish virtual device — the only virtual Android with a real
@@ -24,6 +40,15 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   stop at the Python boundary) and a physical device (which an emulator can't
   stand in for, having no fastboot mode). POSIX-only; skipped on Windows, where
   image-path handling is covered by the allowlist unit tests.
+
+### Fixed
+- **Container sandbox image had no `adb`/`fastboot` on `PATH`.** The
+  `docker/adb-tools.Dockerfile` installed the `android-sdk-platform-tools`
+  Debian package, which did not place the binaries on `PATH`, so
+  `--runner container` would have failed with `exec: "adb": not found`. The
+  unit tests only covered command *construction*, so this was never caught;
+  the new `container-runner` CI job surfaced it. Now installs the `adb` and
+  `fastboot` packages, which ship `/usr/bin/adb` and `/usr/bin/fastboot`.
 
 ## [0.1.2] - 2026-11-04
 

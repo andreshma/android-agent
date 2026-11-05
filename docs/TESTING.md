@@ -40,11 +40,11 @@ coverage claims stay honest:
 | `debloat` disable → re-enable | Live on the emulator; reversibility confirmed independently via `adb shell pm enable` | ✅ reversible cycle |
 | LLM round-trip | Live with **Ollama** (`llama3.1`) and **Claude** — plan proposed, parsed, risk re-derived | ✅ both backends |
 | Allowlist guardrail | Live: a model-proposed non-allowlisted command (`pm list permissions` before it was added; a prefix-less command) was **rejected** before running | ✅ guardrail fired |
-| `optimize` battery ranking | `battery.top_power_consumers` unit-tested on captured `dumpsys` output, **not** yet run live | ⚠️ parser tested, not live |
+| `optimize` read path (battery ranking + bloatware) | Live on the emulator (`emulator-smoke` job): `gather_facts` runs `pm list packages`, bloatware detection and `battery.top_power_consumers` over real `dumpsys batterystats` | ✅ live on emulator |
 | `flash-rom` flow | Driven through the **real subprocess path** against an adb/fastboot stub (`test_flash_integration.py`): discovery, live target check, ordered flash, reboot | ✅ flow over real process I/O |
 | `flash-rom` / `run flash` **on hardware** | Full suite + manual checklist; actual flashing **cannot** run on an emulator (no fastboot) | ⚠️ hardware-only, unverified live |
 | `run unlock` (bootloader) | Suite + checklist; **cannot** run on an emulator | ⚠️ hardware-only, unverified live |
-| Container runner (`--runner container`) | Unit-tested command construction; image must be built/trusted by the operator | ⚠️ construction tested |
+| Container runner (`--runner container`) | Unit-tested command construction, **plus** a CI job (`container-runner`) that builds the sandbox image, Trivy-scans it, runs `adb` under the full hardening flags, and exercises the `--runner container` path end-to-end (no device attached, so flashing itself is still not covered) | ✅ image builds, scanned & runs |
 
 The emulator cannot enter fastboot mode, so **flash and unlock have never been
 exercised against real hardware by the maintainer** — they rest on the test
