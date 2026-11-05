@@ -53,6 +53,27 @@ uv sync --all-extras   # installs the exact versions from uv.lock
 `pyproject.toml` stays the source of truth for dependency ranges; `uv.lock` pins
 the exact resolved versions. Regenerate it with `uv lock` after changing deps.
 
+## Branching model (Gitflow)
+
+This repo follows Gitflow:
+
+- **`main`** — always releasable. Protected: no direct pushes; changes land only
+  through a pull request with green CI. Each release is tagged here (`vX.Y.Z`).
+- **`develop`** — the integration branch where finished work accumulates between
+  releases. Branch day-to-day work off `develop`.
+- **`feature/<name>`** — a unit of work, branched from `develop`, merged back
+  into `develop` via PR.
+- **`release/<x.y.z>`** — cut from `develop` to stabilize a release; merged into
+  `main` (tagged) and back into `develop`.
+- **`hotfix/<x.y.z>`** — an urgent fix branched from `main`, merged into both
+  `main` (tagged) and `develop`.
+
+```bash
+git checkout develop && git pull
+git checkout -b feature/my-change      # work, commit
+git push -u origin feature/my-change   # open a PR into develop
+```
+
 ## Commit style
 
 Conventional Commits (`feat:`, `fix:`, `docs:`…). Add a test for anything that
