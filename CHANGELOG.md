@@ -6,6 +6,12 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-04
+
+Live-validation hardening, honest capability/limitation and validation docs, a
+model-choice note, the Examples Cookbook, plus release-to-PyPI and real-emulator
+CI automation.
+
 ### Changed
 - **Live LLM validation hardening.** Validating the `run` missions against a
   real device (emulator) with both Ollama and Claude surfaced two rough edges,
@@ -38,6 +44,15 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   emulator, troubleshooting, and a full ROM-flash walkthrough — with real run
   transcripts and both bash and Windows PowerShell variants. Linked from the
   README and the User Manual.
+- **PyPI release automation** (`.github/workflows/release.yml`): tagging `v*`
+  builds the sdist + wheel and publishes to PyPI via **Trusted Publishing**
+  (OIDC — no API token stored in the repo), in a dedicated `pypi` environment.
+  See [RELEASING.md](RELEASING.md) for the one-time PyPI trusted-publisher setup.
+- **Real-emulator smoke test in CI** (`emulator-smoke` job): boots an Android
+  emulator (`reactivecircus/android-emulator-runner`) and runs
+  `scripts/emulator_smoke.py`, which exercises the bridge → parse → allowlist
+  read path against **real adb I/O** — the one thing the fake-bridge unit tests
+  cannot cover (closes the "no real-device integration test" gap).
 
 ## [0.1.1] - 2026-11-04
 
@@ -202,6 +217,7 @@ finding remediated.
   checklist); unit tests use fake bridges.
 - `ContainerRunner` image must be built/trusted by the operator.
 
-[Unreleased]: https://github.com/andreshma/android-agent/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/andreshma/android-agent/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/andreshma/android-agent/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/andreshma/android-agent/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/andreshma/android-agent/releases/tag/v0.1.0

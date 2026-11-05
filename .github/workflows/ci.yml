@@ -81,3 +81,37 @@ jobs:
         # --skip-editable skips this project's own local install (not on PyPI);
         # a real vulnerability in a third-party dependency still fails the step.
         run: pip-audit --skip-editable
+
+  emulator-smoke:
+    name: emulator smoke (real adb)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: python -m pip install --upgrade pip && pip install -e .
+
+      - name: Enable KVM (required by the Android emulator)
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Smoke test against a booted emulator (real adb I/O)
+        # Boots an Android emulator, then runs the read-only smoke: it proves the
+        # bridge -> parse -> allowlist read path works against a real device,
+        # which the fake-bridge unit tests cannot cover.
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 30
+          arch: x86_64
+          target: default
+          disable-animations: true
+          script: python scripts/emulator_smoke.py
