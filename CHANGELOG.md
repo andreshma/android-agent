@@ -41,6 +41,15 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   stand in for, having no fastboot mode). POSIX-only; skipped on Windows, where
   image-path handling is covered by the allowlist unit tests.
 
+### Fixed
+- **Container sandbox image had no `adb`/`fastboot` on `PATH`.** The
+  `docker/adb-tools.Dockerfile` installed the `android-sdk-platform-tools`
+  Debian package, which did not place the binaries on `PATH`, so
+  `--runner container` would have failed with `exec: "adb": not found`. The
+  unit tests only covered command *construction*, so this was never caught;
+  the new `container-runner` CI job surfaced it. Now installs the `adb` and
+  `fastboot` packages, which ship `/usr/bin/adb` and `/usr/bin/fastboot`.
+
 ## [0.1.2] - 2026-11-04
 
 Live-validation hardening, honest capability/limitation and validation docs, a

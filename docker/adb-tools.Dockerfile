@@ -17,7 +17,7 @@
 FROM debian:bookworm-slim
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends android-sdk-platform-tools \
+    && apt-get install -y --no-install-recommends adb fastboot \
     && rm -rf /var/lib/apt/lists/*
 
 # Run as a non-root user (audit M3 / Trivy DS002). USB device-node access is
