@@ -1,0 +1,152 @@
+name: Cuttlefish flash (experimental, manual)
+
+# EXPERIMENTAL / BEST-EFFORT. Manual only (workflow_dispatch) and non-blocking
+# (continue-on-error), so it never gates normal development.
+#
+# Goal: drive `android-agent flash-rom` against a Cuttlefish virtual device —
+# the one virtual Android that has a real `fastbootd` (unlike a standard AVD,
+# which has no fastboot mode at all). This is the closest a virtual device gets
+# to validating the flash path; it still is NOT a physical phone (it flashes
+# virtual logical partitions, with none of a real bootloader's brick risk).
+#
+# Status of the unknown: no upstream source we found documents the host
+# `fastboot` <-> Cuttlefish `fastbootd` wiring in GitHub Actions. This workflow
+# probes it and prints diagnostics at each stage, so even a partial run tells us
+# how far the real fastboot flow gets. See docs/TESTING.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "ci.android.com branch"
+        default: "aosp-android-latest-release"
+      device:
+        description: "Cuttlefish target device"
+        default: "aosp_cf_x86_64_only_phone"
+
+permissions:
+  contents: read
+
+jobs:
+  cuttlefish-flash:
+    name: flash-rom vs Cuttlefish fastbootd (experimental)
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    timeout-minutes: 45
+    env:
+      CF_HOME: ${{ github.workspace }}/cf
+      BRANCH: ${{ github.event.inputs.branch }}
+      DEVICE: ${{ github.event.inputs.device }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+
+      - name: Install android-agent + a host fastboot/adb
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          # A host-side fastboot/adb for the agent to drive (separate from the
+          # Cuttlefish host package's own adb).
+          sudo apt-get update
+          sudo apt-get install -y android-sdk-platform-tools-common fastboot adb || \
+            sudo apt-get install -y android-tools-adb android-tools-fastboot
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm || true
+
+      - name: Install Cuttlefish host packages (apt)
+        run: |
+          sudo curl -fsSL https://us-apt.pkg.dev/doc/repo-signing-key.gpg \
+            -o /etc/apt/trusted.gpg.d/artifact-registry.asc
+          sudo chmod a+r /etc/apt/trusted.gpg.d/artifact-registry.asc
+          echo "deb https://us-apt.pkg.dev/projects/android-cuttlefish-artifacts android-cuttlefish main" \
+            | sudo tee -a /etc/apt/sources.list.d/artifact-registry.list
+          sudo apt-get update
+          sudo apt-get install -y cuttlefish-base cuttlefish-user cuttlefish-orchestration
+          sudo usermod -aG kvm,cvdnetwork,render "$USER"
+
+      - name: Download Cuttlefish image + host package
+        run: |
+          set -euxo pipefail
+          mkdir -p "$CF_HOME"
+          TARGET="${DEVICE}-userdebug"
+          VERSION=$(curl -fsSL "https://ci.android.com/builds/branches/${BRANCH}/status.json" \
+            | python3 -c "import sys,json;d=json.load(sys.stdin);print(next(t for t in d['targets'] if t['name']=='${TARGET}')['last_known_good_build'])")
+          echo "Resolved build: $VERSION"
+          BASE="https://ci.android.com/builds/submitted/${VERSION}/${TARGET}/latest/raw"
+          curl -fL "${BASE}/${DEVICE}-img-${VERSION}.zip" -o img.zip
+          curl -fL "${BASE}/cvd-host_package.tar.gz" -o cvd-host_package.tar.gz
+          tar -xzf cvd-host_package.tar.gz -C "$CF_HOME"
+          unzip -q img.zip -d "$CF_HOME"
+          ls -la "$CF_HOME" | head -40
+
+      - name: Launch Cuttlefish and wait for boot
+        run: |
+          set -uxo pipefail
+          cd "$CF_HOME"
+          HOME="$PWD" ./bin/launch_cvd \
+            -cpus=4 --memory_mb=8192 -enable_sandbox=false \
+            --report_anonymous_usage_stats=n --daemon || true
+          HOME="$PWD" ./bin/adb connect 127.0.0.1:6520 || true
+          HOME="$PWD" ./bin/adb wait-for-device || true
+          for i in $(seq 1 60); do
+            b=$(HOME="$PWD" ./bin/adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
+            echo "boot_completed=$b (try $i)"
+            [ "$b" = "1" ] && break
+            sleep 5
+          done
+          HOME="$PWD" ./bin/adb devices
+
+      - name: Probe fastbootd and drive android-agent flash-rom (the experiment)
+        run: |
+          set -uxo pipefail
+          cd "$CF_HOME"
+          # Point the agent at CF's adb (knows the cvd) and the host fastboot.
+          export ANDROID_AGENT_ADB="$CF_HOME/bin/adb"
+          export ANDROID_AGENT_FASTBOOT="$(command -v fastboot || echo "$CF_HOME/bin/fastboot")"
+          echo "agent adb=$ANDROID_AGENT_ADB  fastboot=$ANDROID_AGENT_FASTBOOT"
+          "$ANDROID_AGENT_FASTBOOT" --version || true
+
+          # Enter userspace fastboot (fastbootd).
+          HOME="$PWD" ./bin/adb reboot fastboot || true
+          echo "Waiting for a fastboot device…"
+          for i in $(seq 1 24); do
+            if "$ANDROID_AGENT_FASTBOOT" devices 2>/dev/null | grep -q fastboot; then break; fi
+            sleep 5
+          done
+          "$ANDROID_AGENT_FASTBOOT" devices || true
+
+          # What does the agent see? (device discovery over the real tools)
+          android-agent devices || true
+
+          # Read the product the way the agent's guard does, then reflash the
+          # SHIPPED boot image back to 'boot' — a matching image, so a success
+          # proves the real flash path without risking a mismatch.
+          PRODUCT=$("$ANDROID_AGENT_FASTBOOT" getvar product 2>&1 | sed -n 's/^product: *//p' | head -1)
+          echo "getvar product -> '${PRODUCT:-<none>}'"
+          SERIAL=$("$ANDROID_AGENT_FASTBOOT" devices 2>/dev/null | awk '/fastboot/{print $1; exit}')
+          echo "fastboot serial -> '${SERIAL:-<none>}'"
+
+          if [ -n "${PRODUCT:-}" ] && [ -n "${SERIAL:-}" ] && [ -f "$CF_HOME/boot.img" ]; then
+            echo "=== Driving android-agent flash-rom against Cuttlefish ==="
+            printf 'y\nyes\ny\n' | android-agent flash-rom \
+              -s "$SERIAL" --product "$PRODUCT" \
+              --image "boot=$CF_HOME/boot.img" --no-log --drill-down
+          else
+            echo "::warning::Could not reach fastbootd with a product+serial (or boot.img missing)."
+            echo "This is the unverified wiring; see the diagnostics above."
+          fi
+
+      - name: Stop Cuttlefish
+        if: always()
+        run: |
+          cd "$CF_HOME" && HOME="$PWD" ./bin/stop_cvd || true
