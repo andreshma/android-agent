@@ -32,7 +32,7 @@ jobs:
     name: flash-rom vs Cuttlefish fastbootd (experimental)
     runs-on: ubuntu-24.04
     continue-on-error: true
-    timeout-minutes: 45
+    timeout-minutes: 30
     env:
       CF_HOME: ${{ github.workspace }}/cf
       BRANCH: ${{ github.event.inputs.branch }}
@@ -93,11 +93,13 @@ jobs:
         run: |
           set -uxo pipefail
           cd "$CF_HOME"
-          HOME="$PWD" ./bin/launch_cvd \
-            -cpus=4 --memory_mb=8192 -enable_sandbox=false \
-            --report_anonymous_usage_stats=n --daemon || true
+          # Group membership from `usermod -aG` does NOT reach this already-running
+          # shell, so launch under `sg cvdnetwork`: assemble_cvd chgrps its runtime
+          # dir to cvdnetwork and aborts with EPERM otherwise (seen on the first run).
+          sg cvdnetwork -c "HOME='$PWD' '$PWD/bin/launch_cvd' -cpus=4 --memory_mb=8192 -enable_sandbox=false --report_anonymous_usage_stats=n --daemon" || true
           HOME="$PWD" ./bin/adb connect 127.0.0.1:6520 || true
-          HOME="$PWD" ./bin/adb wait-for-device || true
+          # Fail fast instead of hanging to the job timeout if the device never comes up.
+          timeout 120 env HOME="$PWD" ./bin/adb wait-for-device || echo "::warning::adb wait-for-device timed out"
           for i in $(seq 1 60); do
             b=$(HOME="$PWD" ./bin/adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
             echo "boot_completed=$b (try $i)"
