@@ -219,6 +219,14 @@ ANDROID_AGENT_LOG=./run.jsonl android-agent debloat -s ABCD1234
 Verified, ordered ROM flash. Needs the device in **fastboot** mode. Refuses
 unless `--product` matches the connected device, and checks every image exists.
 
+> ℹ️ **The outputs in §8–§10 are illustrative**, not captured live runs
+> (placeholder serial `ABCD1234`, example images). Flashing and unlocking require
+> fastboot mode, which **an emulator cannot provide**, so these flows are
+> validated by the automated suite (`tests/test_flows_e2e.py`) and the manual
+> on-device checklist — **not** by a live run. See the
+> [validation status in TESTING.md](TESTING.md#validation-status-what-has-actually-been-exercised).
+> The `(real)` blocks elsewhere in this cookbook *are* captured emulator runs.
+
 ```bash
 # Single partition
 android-agent flash-rom -s ABCD1234 --product redfin --image boot=./boot.img
