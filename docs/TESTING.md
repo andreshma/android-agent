@@ -18,6 +18,28 @@ mypy src
 CI runs this matrix on **Windows and Linux** across Python 3.10–3.12, plus a
 locked-install (`uv --frozen`) job and a `pip-audit` supply-chain job.
 
+## Validation status (what has actually been exercised)
+
+Being precise about what has and hasn't been run against a real device, so the
+coverage claims stay honest:
+
+| Area | How it was validated | Status |
+|---|---|---|
+| `devices` discovery | Live against the Android emulator (API 35) | ✅ real device I/O |
+| `audit` (read-only) | Live `run audit` against the emulator with **both** backends; 4 read-only adb steps executed | ✅ end-to-end, real adb |
+| `debloat` disable → re-enable | Live on the emulator; reversibility confirmed independently via `adb shell pm enable` | ✅ reversible cycle |
+| LLM round-trip | Live with **Ollama** (`llama3.1`) and **Claude** — plan proposed, parsed, risk re-derived | ✅ both backends |
+| Allowlist guardrail | Live: a model-proposed non-allowlisted command (`pm list permissions` before it was added; a prefix-less command) was **rejected** before running | ✅ guardrail fired |
+| `optimize` battery ranking | `battery.top_power_consumers` unit-tested on captured `dumpsys` output, **not** yet run live | ⚠️ parser tested, not live |
+| `flash-rom` / `run flash` | Full suite + manual checklist; **cannot** run on an emulator (no fastboot flashing) | ⚠️ hardware-only, unverified live |
+| `run unlock` (bootloader) | Suite + checklist; **cannot** run on an emulator | ⚠️ hardware-only, unverified live |
+| Container runner (`--runner container`) | Unit-tested command construction; image must be built/trusted by the operator | ⚠️ construction tested |
+
+The emulator cannot enter fastboot mode, so **flash and unlock have never been
+exercised against real hardware by the maintainer** — they rest on the test
+suite and the manual checklist below. Treat them accordingly and test on a
+spare/own device you are prepared to wipe.
+
 ## Manual testing against a real device
 
 The unit tests use fake bridges, so the one thing they can't cover is talking to
