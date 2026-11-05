@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "android-agent"
-version = "0.1.1"
+version = "0.1.2"
 description = "An LLM-driven agent that helps you audit, optimize, flash and unlock YOUR OWN Android device — in a sandbox, with human-readable explanations and confirmation before every action."
 readme = "README.md"
 requires-python = ">=3.10"

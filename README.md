@@ -254,7 +254,8 @@ issue tracker.
 - [Testing](docs/TESTING.md) — automated suite + manual on-device checklist
 - Audit reports: [`audits/`](audits/)
 - [Security policy](SECURITY.md) · [Contributing](CONTRIBUTING.md) ·
-  [Code of Conduct](CODE_OF_CONDUCT.md) · [Changelog](CHANGELOG.md)
+  [Code of Conduct](CODE_OF_CONDUCT.md) · [Changelog](CHANGELOG.md) ·
+  [Releasing](RELEASING.md)
 
 ## License
 
