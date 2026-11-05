@@ -6,6 +6,18 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Real-subprocess flash integration test** (`tests/test_flash_integration.py`):
+  drives the full `flash-rom` flow through the **real execution path** — an
+  executable `adb`/`fastboot` stub pointed to by the env overrides, so
+  `LocalRunner` actually spawns a process and the real parsers handle its output
+  (device discovery, the live `getvar product` target check, the ordered
+  partition flash, the reboot, and the wrong-target refusal). It validates the
+  flow over real process I/O — the gap between the fake-bridge e2e tests (which
+  stop at the Python boundary) and a physical device (which an emulator can't
+  stand in for, having no fastboot mode). POSIX-only; skipped on Windows, where
+  image-path handling is covered by the allowlist unit tests.
+
 ## [0.1.2] - 2026-11-04
 
 Live-validation hardening, honest capability/limitation and validation docs, a
