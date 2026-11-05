@@ -7,6 +7,22 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Live `optimize` read path in CI**: the `emulator-smoke` job now also runs
+  the `optimize` mission's read-only fact gathering against the booted emulator
+  — `pm list packages`, bloatware detection and the battery ranking
+  (`battery.top_power_consumers` over real `dumpsys batterystats`) — so the
+  ranking is exercised live, not only against captured output. Nothing is
+  disabled; it stays read-only.
+- **Container-runner CI job** (`container-runner`, informational): builds the
+  `docker/adb-tools.Dockerfile` sandbox image, **Trivy-scans** it (fails on an
+  unfixed CRITICAL), runs `adb` under the full hardening flags, and exercises
+  the `--runner container` path end-to-end. Raises the container runner from
+  "command construction tested" to "image builds, is scanned and runs" (real
+  flashing still needs a physical device).
+- **Gitflow + branch protection**: `develop` integration branch (now the default)
+  alongside `main`; both protected (no direct pushes, PR + green CI required).
+  CI runs on `develop` too. The branching model is documented in
+  [CONTRIBUTING.md](CONTRIBUTING.md).
 - **Experimental Cuttlefish flash workflow** (`.github/workflows/cuttlefish.yml`):
   a manual, non-blocking (`workflow_dispatch` + `continue-on-error`) job that
   launches a Cuttlefish virtual device — the only virtual Android with a real

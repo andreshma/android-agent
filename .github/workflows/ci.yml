@@ -115,3 +115,57 @@ jobs:
           target: default
           disable-animations: true
           script: python scripts/emulator_smoke.py
+
+  container-runner:
+    name: container runner (build · scan · smoke)
+    runs-on: ubuntu-latest
+    # Informational, not a required check (like the emulator smoke): it builds a
+    # container image and exercises the ContainerRunner sandbox path, so a quirk
+    # of the hosted runner's Docker/USB setup must not gate an unrelated merge.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: python -m pip install --upgrade pip && pip install -e .
+
+      - name: Build the adb-tools sandbox image
+        run: docker build -t android-agent/adb-tools:latest -f docker/adb-tools.Dockerfile .
+
+      - name: Scan the image (Trivy)
+        # Fails the step only on an unfixed CRITICAL; HIGH and below are printed
+        # for visibility. The job is advisory, so even that does not gate merges.
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: android-agent/adb-tools:latest
+          format: table
+          exit-code: "1"
+          severity: CRITICAL
+          ignore-unfixed: true
+
+      - name: Image runs the hardened toolchain (adb present, no network)
+        # The deterministic proof: the built image actually runs `adb` under the
+        # exact hardening flags ContainerRunner applies (no network, no new
+        # privileges, all caps dropped, read-only root + tmpfs).
+        run: |
+          docker run --rm --network none \
+            --security-opt=no-new-privileges --cap-drop=ALL \
+            --read-only --tmpfs=/tmp -e HOME=/tmp \
+            android-agent/adb-tools:latest adb version
+
+      - name: Drive the ContainerRunner path end-to-end
+        # `android-agent devices --runner container` builds the hardened
+        # `docker run` invocation, runs adb inside the sandbox and parses its
+        # output. No phone is attached, so it correctly lists no devices; the
+        # point is that the real container code path spawns and returns cleanly.
+        run: |
+          # ContainerRunner passes --device=/dev/bus/usb on Linux; ensure the
+          # path exists on the hosted runner so `docker run` accepts it.
+          [ -e /dev/bus/usb ] || sudo mkdir -p /dev/bus/usb
+          android-agent devices --runner container
