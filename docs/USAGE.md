@@ -34,6 +34,39 @@ Four missions and three helper commands:
 | List connected devices | `devices` | none | — |
 | Review the action log | `log` | none | — |
 
+### 1.1 What it does **not** do (non-goals & limitations)
+
+Being explicit about the edges keeps expectations honest. By deliberate design,
+android-agent does **not**:
+
+- **Create your backup.** `adb backup` was removed (its `-f <path>` was a
+  host-file-overwrite vector, and modern Android backs it only partially). The
+  backup before a destructive flash/unlock is a precondition **you** own (§3.3).
+- **Install or uninstall apps.** There is no `adb install`, and
+  `pm uninstall` / `cmd package uninstall` / `install-existing` are denied.
+  `optimize`/`debloat` only **disable** packages (reversible) — nothing is
+  removed from the device.
+- **Sideload OTA zips or flash via recovery.** `adb sideload` is not supported;
+  flashing is **fastboot partition images only** (`flash <partition> <image>`).
+  A ROM distributed as a recovery-sideloaded zip is out of scope for now.
+- **Factory-wipe or erase on request.** `fastboot -w` / `fastboot erase` are not
+  allowlisted. (Unlocking the bootloader erases the device, but that wipe is
+  performed by the device itself as part of `flashing unlock`, not a wipe
+  command the agent issues.)
+- **Re-lock as a guided mission.** The allowlist permits `fastboot flashing
+  lock`, but there is no `relock` walkthrough — run it manually if you need it.
+- **Expose diagnostics** such as `logcat`, `bugreport`, screenshots or
+  screen-recording.
+- **Bypass any security control.** No lock-screen, PIN, pattern, FRP (Factory
+  Reset Protection) or carrier-lock bypass; nothing that targets a device you do
+  not own. This is refused in code, not just in docs.
+- **Run arbitrary commands.** Only the explicit allowlist
+  (`bridge/allowlist.py`) runs; anything else the LLM proposes is rejected
+  before you are asked to confirm.
+
+If you need one of these, use `adb`/`fastboot` directly — on purpose, with full
+knowledge of what you are doing.
+
 ---
 
 ## 2. Dependencies
@@ -55,6 +88,16 @@ The Python runtime dependencies (`typer`, `rich`, `pydantic`, `httpx`,
 |---|---|---|
 | **Ollama** (local, default) | Keep all device data on your machine | Install [Ollama](https://ollama.com/), then `ollama pull llama3.1` (or your model) and make sure the server is running |
 | **Claude API** (hosted) | More capable planning; you accept that read-only device facts are sent to Anthropic | `pip install -e ".[anthropic]"` and set `ANTHROPIC_API_KEY` |
+
+**Choosing a model.** The agent asks the backend for a strict JSON plan whose
+every command starts with `adb`/`fastboot` and sits on the allowlist. Capable
+models — Claude, or a larger local model — follow that contract reliably. Small
+or heavily-quantized local models sometimes drift (dropping the `adb` prefix, or
+proposing a command that isn't allowlisted). When that happens the plan is
+**rejected before anything runs** — a safe failure, not a dangerous one: just
+re-run, or switch to a more capable model. In live testing `llama3.1` and Claude
+both produced valid audit plans; very small models are more likely to be
+rejected.
 
 ### 2.3 Optional — the container sandbox
 

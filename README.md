@@ -114,6 +114,12 @@ More diagrams (sequence, trust boundaries): [docs/DIAGRAMS.md](docs/DIAGRAMS.md)
 Each mission requires the right connection mode; the agent refuses (with a clear
 message) if the device is in the wrong one.
 
+**What it does *not* do (by design):** create your backup, install/uninstall
+apps (optimize only *disables*, reversibly), sideload OTA zips or flash via
+recovery (fastboot partition images only), factory-wipe/erase on request,
+expose diagnostics (logcat/bugreport), or bypass any lock screen, FRP or carrier
+lock. Full list: [User Manual §1.1](docs/USAGE.md#11-what-it-does-not-do-non-goals--limitations).
+
 ## Command reference
 
 | Command | What it does |
@@ -154,6 +160,12 @@ Pick either, swap freely — same interface:
   (model, product, package names, properties) are sent to the hosted API to
   plan the mission; the CLI shows an explicit notice before it does so. Your
   API key is never passed to the device toolchain.
+
+> **Model choice matters.** The agent demands a strict JSON plan on the
+> allowlist. Capable models (Claude, larger local models) follow it reliably;
+> very small/quantized models may propose a plan that gets **rejected before
+> anything runs** — a safe failure. Just re-run or pick a stronger model. See
+> the manual's [choosing a model](docs/USAGE.md#22-choose-at-least-one-llm-backend) note.
 
 ## The container sandbox
 

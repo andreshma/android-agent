@@ -16,6 +16,22 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   boundary is unchanged otherwise: the additions are read-only and on-mission.
 
 ### Added
+- **Capabilities & limitations made explicit** ([docs/USAGE.md](docs/USAGE.md)
+  §1.1, README): a "what it does **not** do" section — no backup creation, no
+  app install/uninstall (optimize only disables, reversibly), no OTA/recovery
+  sideload (fastboot partition images only), no factory-wipe/erase, no
+  diagnostics, no lock-screen/FRP/carrier-lock bypass — so expectations stay
+  honest.
+- **Model-choice guidance** ([docs/USAGE.md](docs/USAGE.md) §2.2, README):
+  capable models follow the allowlisted-JSON plan contract reliably; very small
+  models may produce a plan that is rejected before anything runs (a safe
+  failure). Re-run or pick a stronger model.
+- **Validation status table** ([docs/TESTING.md](docs/TESTING.md)): an honest
+  per-area record of what was exercised live against the emulator (devices,
+  audit with both backends, the debloat reversible cycle, the LLM round-trip,
+  the allowlist guardrail) versus what remains hardware-only and unverified live
+  by the maintainer (flash, unlock) or parser-tested but not run live (battery
+  ranking, container runner).
 - **Examples Cookbook** ([docs/EXAMPLES.md](docs/EXAMPLES.md)): copy-paste
   examples covering every feature — install, tool paths, both backends, each
   command and flag, the container runner, logging/verification, practising on an
