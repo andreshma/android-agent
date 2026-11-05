@@ -44,10 +44,13 @@ CI automation.
   emulator, troubleshooting, and a full ROM-flash walkthrough — with real run
   transcripts and both bash and Windows PowerShell variants. Linked from the
   README and the User Manual.
-- **PyPI release automation** (`.github/workflows/release.yml`): tagging `v*`
-  builds the sdist + wheel and publishes to PyPI via **Trusted Publishing**
-  (OIDC — no API token stored in the repo), in a dedicated `pypi` environment.
-  See [RELEASING.md](RELEASING.md) for the one-time PyPI trusted-publisher setup.
+- **PyPI publishing pipeline, opt-in** (`.github/workflows/release.yml`): a
+  **manual** (`workflow_dispatch`) workflow that builds the sdist + wheel and
+  publishes to PyPI via **Trusted Publishing** (OIDC — no API token stored in the
+  repo), in a dedicated `pypi` environment. Publishing to PyPI is **deferred to a
+  future phase** and never triggers automatically on a tag; installing from a
+  clone (`pip install -e .`) remains the supported path. See
+  [RELEASING.md](RELEASING.md) for the one-time setup and how to trigger it.
 - **Real-emulator smoke test in CI** (`emulator-smoke` job): boots an Android
   emulator (`reactivecircus/android-emulator-runner`) and runs
   `scripts/emulator_smoke.py`, which exercises the bridge → parse → allowlist

@@ -1,12 +1,17 @@
-name: Release
+name: Release (PyPI — opt-in)
 
-# Build the distributions and publish them to PyPI when a version tag is pushed.
+# OPTIONAL / DEFERRED: publishing android-agent to PyPI is reserved for a future
+# phase. This workflow is therefore **manual only** (workflow_dispatch) — it does
+# NOT run automatically on a tag, so cutting a GitHub release never triggers a
+# PyPI publish by accident. When you decide to publish, first complete the
+# one-time PyPI Trusted Publisher setup (see RELEASING.md), then run this
+# workflow by hand from the Actions tab (or `gh workflow run release.yml`).
+#
 # Publishing uses PyPI Trusted Publishing (OIDC): there is NO API token stored
-# in the repository. The one-time PyPI setup is documented in RELEASING.md.
+# in the repository.
 
 on:
-  push:
-    tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: read

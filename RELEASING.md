@@ -1,9 +1,29 @@
 # Releasing
 
-Releases are automated. Pushing a version tag (`vX.Y.Z`) triggers
-[`.github/workflows/release.yml`](.github/workflows/release.yml), which builds
-the sdist + wheel and publishes them to [PyPI](https://pypi.org/p/android-agent)
-via **Trusted Publishing** (OIDC) — no API token is stored in the repository.
+## GitHub releases (current)
+
+A release is a version tag + GitHub release. Cutting one does **not** publish to
+PyPI — that is deliberately a separate, opt-in step (below).
+
+## PyPI publishing (optional — deferred to a future phase)
+
+> **Status: not published to PyPI yet, and not automatic.** Installing from a
+> clone (`pip install -e .`) is the supported path for now. The pipeline below is
+> ready whenever you decide to make `android-agent` installable via
+> `pip install android-agent`.
+
+[`.github/workflows/release.yml`](.github/workflows/release.yml) builds the
+sdist + wheel and publishes them to [PyPI](https://pypi.org/p/android-agent) via
+**Trusted Publishing** (OIDC) — no API token is stored in the repository. It is
+**manual** (`workflow_dispatch`): it never runs on a tag by itself, so a GitHub
+release can never trigger a PyPI publish by accident.
+
+To publish when the time comes:
+
+1. Complete the one-time PyPI setup below.
+2. Trigger the workflow by hand from the **Actions** tab (select the tag/ref to
+   publish), or `gh workflow run release.yml --ref vX.Y.Z`.
+3. Watch the run; on success the version appears on PyPI.
 
 ## One-time PyPI setup (Trusted Publishing)
 
@@ -37,13 +57,17 @@ Because the project does not exist on PyPI yet, use a **pending** publisher:
    `[X.Y.Z] - <date>` heading, add a fresh empty `[Unreleased]`, and update the
    compare links at the bottom.
 4. Commit (`release: vX.Y.Z …`) and push `main`.
-5. Create the GitHub release + tag (this is what triggers publishing):
+5. Create the GitHub release + tag:
    ```bash
    gh release create vX.Y.Z --title "vX.Y.Z" --notes-file <(sed -n '/## \[X.Y.Z\]/,/## \[/p' CHANGELOG.md)
    ```
-   or write the notes inline. The tag push starts the `Release` workflow.
-6. Watch the run: `gh run watch` (or the Actions tab). On success the new version
-   appears on PyPI.
+   or write the notes inline. This does **not** publish to PyPI.
+6. **(Optional, future phase)** To also publish to PyPI, run the manual workflow
+   against the tag — only after the one-time PyPI setup above:
+   ```bash
+   gh workflow run release.yml --ref vX.Y.Z
+   gh run watch   # on success the version appears on PyPI
+   ```
 
 ## Verifying a build locally (optional)
 
