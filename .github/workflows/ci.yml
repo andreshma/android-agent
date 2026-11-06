@@ -20,7 +20,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       # Actions pinned by commit SHA (audit M9); the comment records the tag.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -38,6 +38,9 @@ jobs:
 
       - name: Lint (ruff)
         run: ruff check .
+
+      - name: Format check (ruff)
+        run: ruff format --check .
 
       - name: Type check (mypy)
         run: mypy src
@@ -159,13 +162,44 @@ jobs:
             --read-only --tmpfs=/tmp -e HOME=/tmp \
             android-agent/adb-tools:latest adb version
 
-      - name: Drive the ContainerRunner path end-to-end
-        # `android-agent devices --runner container` builds the hardened
-        # `docker run` invocation, runs adb inside the sandbox and parses its
-        # output. No phone is attached, so it correctly lists no devices; the
-        # point is that the real container code path spawns and returns cleanly.
+      - name: Drive the ContainerRunner path end-to-end (assert, don't assume)
+        # Exercise the REAL ContainerRunner.execute path and assert on concrete
+        # behaviour: the docker run must succeed (returncode 0) and adb's own
+        # banner must come back through the sandbox. `android-agent devices`
+        # alone can't tell "ran cleanly, no phone" from "docker failed" (both
+        # print nothing and exit 0), so this would otherwise pass vacuously
+        # (audit M10 / adversarial review).
         run: |
           # ContainerRunner passes --device=/dev/bus/usb on Linux; ensure the
           # path exists on the hosted runner so `docker run` accepts it.
           [ -e /dev/bus/usb ] || sudo mkdir -p /dev/bus/usb
-          android-agent devices --runner container
+          python - <<'PY'
+          import sys
+          from android_agent.bridge.device import Bridge
+          from android_agent.bridge.sandbox import ContainerRunner
+
+          out = Bridge(ContainerRunner()).execute(["adb", "devices"])
+          print(f"rc={out.returncode}\nstdout={out.stdout!r}\nstderr={out.stderr!r}")
+          if not out.ok:
+              sys.exit(f"FAIL: ContainerRunner adb exited {out.returncode}: {out.stderr}")
+          if "List of devices attached" not in out.stdout:
+              sys.exit("FAIL: adb banner not returned from inside the sandbox")
+          print("OK: ContainerRunner ran adb inside the sandbox and returned its output")
+          PY
+
+      - name: Generate and upload the SBOM (CycloneDX)
+        # Ship the dependency inventory as a build artifact so "are we affected
+        # by CVE-X?" is answerable later (audit M11).
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: cyclonedx
+          output: sbom.cdx.json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sbom-cyclonedx
+          path: sbom.cdx.json
+          if-no-files-found: warn

@@ -73,7 +73,9 @@ _RISK: dict[str, RiskLevel] = {
     "adb:shell:cmd package list packages": RiskLevel.NONE,
     "adb:shell:pm disable-user": RiskLevel.LOW,
     "adb:shell:pm enable": RiskLevel.LOW,
-    "adb:shell:pm clear": RiskLevel.LOW,
+    # `pm clear` wipes an app's entire data (not just cache); it is destructive
+    # and NOT reversible, so it is HIGH, not LOW (audit M1).
+    "adb:shell:pm clear": RiskLevel.HIGH,
     "fastboot:devices": RiskLevel.NONE,
     "fastboot:getvar": RiskLevel.NONE,
     "fastboot:reboot": RiskLevel.LOW,
@@ -82,10 +84,20 @@ _RISK: dict[str, RiskLevel] = {
     "fastboot:flash": RiskLevel.HIGH,
 }
 
-# Safe value shapes. All forbid shell metacharacters by construction.
+# Authoritative reversibility per full key, derived here and never trusted from
+# the LLM (audit M1). Only these two genuinely restore the prior state; a
+# read-only (NONE-risk) command changes nothing and is treated as reversible by
+# ``reversible_for``. Everything else (flash, unlock, pm clear, reboot) is NOT.
+_REVERSIBLE: dict[str, bool] = {
+    "adb:shell:pm disable-user": True,
+    "adb:shell:pm enable": True,
+}
+
+# Safe value shapes. All forbid shell metacharacters by construction, and none
+# may start with '-' (which fastboot/adb would read as an option — audit L6).
 _PKG = re.compile(r"^[A-Za-z][A-Za-z0-9_.]*$")  # package id
-_PROP = re.compile(r"^[A-Za-z0-9_.\-]+$")  # system property name
-_VAR = re.compile(r"^[A-Za-z0-9_.\-]+$")  # fastboot getvar variable
+_PROP = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.\-]*$")  # system property name
+_VAR = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.\-]*$")  # fastboot getvar variable
 _PART = re.compile(r"^[A-Za-z0-9_]+$")  # fastboot partition name
 
 
@@ -207,3 +219,27 @@ def risk_for(command: list[str]) -> RiskLevel:
     entry is never silently treated as safe.
     """
     return _RISK.get(validate(command), RiskLevel.HIGH)
+
+
+def reversible_for(command: list[str]) -> bool:
+    """Authoritative reversibility for a command, derived from the allowlist.
+
+    Validates first, then returns whether the action can be cleanly undone: the
+    two explicitly reversible pm verbs, or any read-only (NONE-risk) command
+    that changes nothing. Everything else is False. The LLM's self-declared
+    ``reversible`` is never trusted over this (audit M1)."""
+    key = validate(command)
+    if _REVERSIBLE.get(key, False):
+        return True
+    return _RISK.get(key, RiskLevel.HIGH) is RiskLevel.NONE
+
+
+def description_for(command: list[str]) -> str:
+    """The canonical, repo-authored description of what a command does.
+
+    Unlike ``Step.human`` (which the LLM writes), this text is fixed here, so it
+    can be shown next to the raw argv for a trustworthy account of a step that
+    does not depend on what the model chose to say (audit M2)."""
+    full_key = validate(command)
+    tool, key = full_key.split(":", 1)
+    return _TOOLS.get(tool, {}).get(key, key)

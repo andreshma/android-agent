@@ -19,7 +19,8 @@ Linux.
 ## Considered options
 
 - **A. A `Runner` port** with `LocalRunner` (direct) and `ContainerRunner`
-  (network-less container, USB passthrough), selected by config.
+  (hardened container — network-less + USB passthrough on Linux; host gateway on
+  Windows/macOS), selected by config.
 - **B. Always run locally.**
 
 ## Decision

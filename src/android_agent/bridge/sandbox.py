@@ -25,6 +25,7 @@ import os
 import shutil
 import subprocess
 import sys
+import uuid
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -43,14 +44,30 @@ class RunOutput:
 _ENV_OVERRIDE = {"adb": "ANDROID_AGENT_ADB", "fastboot": "ANDROID_AGENT_FASTBOOT"}
 
 # Secrets that must never be inherited by the adb/fastboot child process: the
-# device toolchain has no business reading the operator's hosted-LLM API key, so
-# we strip it from the environment we hand the subprocess (audit L3).
+# device toolchain has no business reading the operator's credentials (audit
+# L3/L5). A strict allowlist would risk stripping env the tool genuinely needs
+# across platforms (PATH, HOME, SystemRoot, locale, …) and would break on an
+# unusual setup, so this is a credential-shaped DENYLIST: exact known keys plus
+# any var whose name looks like a token/secret/key/password or belongs to a
+# cloud/CI credential family. The goal — no credential reaches adb/fastboot — is
+# met without guessing the full set of names the toolchain needs.
 _SCRUBBED_ENV_KEYS = frozenset({"ANTHROPIC_API_KEY", "OPENAI_API_KEY"})
+_SCRUBBED_ENV_SUFFIXES = ("_API_KEY", "_TOKEN", "_SECRET", "_PASSWORD", "_KEY", "_CREDENTIALS")
+_SCRUBBED_ENV_PREFIXES = ("AWS_", "GOOGLE_", "GCP_", "AZURE_", "GH_", "GITHUB_")
+
+
+def _is_secret_env_key(name: str) -> bool:
+    upper = name.upper()
+    return (
+        name in _SCRUBBED_ENV_KEYS
+        or upper.endswith(_SCRUBBED_ENV_SUFFIXES)
+        or upper.startswith(_SCRUBBED_ENV_PREFIXES)
+    )
 
 
 def _child_env() -> dict[str, str]:
-    """A copy of the environment with LLM secrets removed, for the toolchain."""
-    return {k: v for k, v in os.environ.items() if k not in _SCRUBBED_ENV_KEYS}
+    """A copy of the environment with credential-shaped vars removed."""
+    return {k: v for k, v in os.environ.items() if not _is_secret_env_key(k)}
 
 
 def resolve_tool(name: str) -> str | None:
@@ -84,6 +101,9 @@ def _run_subprocess(argv: list[str], timeout: float | None) -> RunOutput:
             text=True,
             timeout=timeout,
             shell=False,
+            # Never inherit this process's stdin: the toolchain should not be
+            # able to read from (or block on) the operator's terminal (audit L7).
+            stdin=subprocess.DEVNULL,
             env=_child_env(),
         )
     except FileNotFoundError as exc:
@@ -115,23 +135,31 @@ class LocalRunner:
 
 
 class ContainerRunner:
-    """Run the toolchain inside a network-less container with the device
-    reachable, so a compromised binary or a malicious device payload cannot
-    reach the host filesystem or the internet.
+    """Run the toolchain inside a hardened container with the device reachable,
+    so a compromised binary or a malicious device payload is contained.
+
+    **EXPERIMENTAL / unverified on hardware.** The container flow has not been
+    run against a physical phone by the maintainer: the Linux USB-passthrough +
+    per-call ephemeral adb key path (the device re-prompts "Allow USB
+    debugging?" for a new key each run) and udev device-node permissions are
+    untested live. Prefer ``--runner local`` until you have validated this on a
+    spare device. See docs/TESTING.md.
 
     The *inner* command (``["adb", ...]`` / ``["fastboot", ...]``) is already
     allowlist-validated by ``Bridge`` before it reaches here; this runner only
-    wraps it in a container invocation. Device access differs by OS:
+    wraps it in a container invocation. Device access and network isolation
+    differ by OS — note the isolation is NOT uniform:
 
-      • **Linux** — pass the USB bus straight through and keep the container
-        off the network::
+      • **Linux** — USB bus passed straight through and the container kept fully
+        **off the network** (``--network none``)::
 
             <engine> run --rm --network none --device=/dev/bus/usb IMAGE adb ...
 
       • **Windows / macOS** — the container can't see USB directly, so adb runs
         in *server* mode on the host and the container's adb/fastboot talks to
-        it over a loopback socket (``-H host.docker.internal``). The container
-        gets just that host gateway, nothing else.
+        it over the host gateway (``-H host.docker.internal``). This path is
+        therefore **NOT network-less**: the container reaches the host gateway
+        (needed for the adb server) rather than being isolated like on Linux.
 
     Any argv token that is an existing host file (e.g. a ROM image for
     ``fastboot flash``) is bind-mounted **read-only** into the container and the
@@ -153,10 +181,17 @@ class ContainerRunner:
         self.platform = platform or sys.platform
 
     def engine(self) -> str | None:
-        """The container engine to use: explicit, else podman, else docker."""
-        if self._engine:
-            return self._engine
-        return shutil.which("podman") and "podman" or (shutil.which("docker") and "docker") or None
+        """The container engine to use, as an ABSOLUTE path: explicit, else
+        podman, else docker. Resolving to a full path means the engine is never
+        looked up from the CWD at spawn time (audit L10)."""
+        name = self._engine or (
+            "podman" if shutil.which("podman") else ("docker" if shutil.which("docker") else None)
+        )
+        if name is None:
+            return None
+        # If it resolves on PATH, use the absolute path; otherwise fall back to
+        # the name (an explicit engine the caller vouches for).
+        return shutil.which(name) or name
 
     @property
     def _is_linux(self) -> bool:
@@ -215,7 +250,9 @@ class ContainerRunner:
         is unit-tested per OS.
         """
         mounts = mounts or {}
-        argv = [engine, "run", "--rm", "-i", *self._HARDENING]
+        # No `-i`: stdin is attached to DEVNULL in _run_subprocess, so an
+        # interactive TTY is neither needed nor wanted (audit L7).
+        argv = [engine, "run", "--rm", *self._HARDENING]
         for host, container in mounts.items():
             argv += ["-v", f"{host}:{container}:ro"]
 
@@ -250,4 +287,18 @@ class ContainerRunner:
                 "no container engine found. Install podman or docker, or use --runner local.",
             )
         mounts = self.mounts_for(command)
-        return _run_subprocess(self.build_command(command, engine, mounts), timeout)
+        argv = self.build_command(command, engine, mounts)
+        # Give the container a unique name and tear it down if it outlives the
+        # timeout, so a hung toolchain doesn't leave an orphan container (L7).
+        name = f"android-agent-{uuid.uuid4().hex[:12]}"
+        argv = [argv[0], argv[1], f"--name={name}", *argv[2:]]
+        out = _run_subprocess(argv, timeout)
+        if out.returncode == 124:  # timed out
+            subprocess.run(  # noqa: S603 - fixed argv, shell=False
+                [engine, "rm", "-f", name],
+                capture_output=True,
+                text=True,
+                stdin=subprocess.DEVNULL,
+                env=_child_env(),
+            )
+        return out
