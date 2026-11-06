@@ -83,9 +83,10 @@ def test_ollama_propose_plan_uses_json_mode_and_framing(monkeypatch):
     # JSON mode is requested and the trailing slash on host was stripped.
     assert captured["body"]["format"] == "json"
     assert captured["url"] == "http://host:11434/api/chat"
-    # The device facts are wrapped in the untrusted-data block (audit M6).
+    # The device facts are wrapped in the untrusted-data block (audit M6); the
+    # delimiter now carries a per-call random nonce (audit L3).
     user_msg = captured["body"]["messages"][1]["content"]
-    assert "<device_facts>" in user_msg
+    assert "<device_facts " in user_msg
     assert "untrusted data" in user_msg
 
 

@@ -4,18 +4,45 @@ Guides flashing a custom ROM (e.g. LineageOS) or firmware via fastboot. Because
 this can brick a device if the image doesn't match the exact model/variant,
 the capability is built around guardrails:
 
-  • verify device model/product against the image's declared target,
-  • require a confirmed backup step first,
+  • verify device model/product against the image's declared target (refusing
+    to flash on a mismatch),
+  • show each image's SHA-256 and size so the operator can confirm what will be
+    written, and warn when a critical/bricking partition is targeted,
   • flash partition-by-partition with an explicit HIGH-risk confirmation.
+
+The operator is responsible for having unlocked the bootloader and made their
+own backup first; this tool does not create a backup (a deliberate non-goal —
+see docs/USAGE.md).
 """
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 from ..bridge import parse
 from ..models import Device, DeviceMode, Mission, Plan, RiskLevel, Step
 from .base import Capability
+
+# Partitions where a wrong image is most likely to hard-brick the device (no
+# easy recovery without specialised tools). Flashing these is still allowed —
+# it is the operator's own device — but the plan calls them out explicitly.
+CRITICAL_PARTITIONS: frozenset[str] = frozenset(
+    {"bootloader", "radio", "vbmeta", "vbmeta_system", "vbmeta_vendor", "modem", "aboot"}
+)
+
+
+def _image_fingerprint(path: str) -> str:
+    """Return ``sha256:<first 16 hex>… (N.N MB)`` for an image, so the operator
+    can eyeball exactly which file will be written. Best-effort: on any read
+    error it returns a marker rather than failing the whole plan."""
+    try:
+        data = Path(path).read_bytes()
+    except OSError:
+        return "unreadable"
+    digest = hashlib.sha256(data).hexdigest()
+    return f"sha256:{digest[:16]}… ({len(data) / 1_048_576:.1f} MB)"
+
 
 # A sensible default order to flash partitions in. Partitions earlier in the
 # list are written first; callers supply only the ones they have images for.
@@ -73,12 +100,17 @@ class FlashCapability(Capability):
     def flash_partition_step(serial: str, partition: str, image_path: str) -> Step:
         partition = _reject_option_like(partition, "partition")
         image_path = _reject_option_like(image_path, "image path")
+        critical = (
+            " ⚠ CRITICAL partition — a wrong image here can hard-brick the device."
+            if (partition in CRITICAL_PARTITIONS)
+            else ""
+        )
         return Step(
             capability="flash",
             human=(
-                f"Write the image '{image_path}' to the '{partition}' partition. "
-                "This is HIGH risk and can erase data or brick the device if the "
-                "image does not match your exact model."
+                f"Write '{image_path}' [{_image_fingerprint(image_path)}] to the "
+                f"'{partition}' partition. HIGH risk: can erase data or brick the "
+                f"device if the image does not match your exact model.{critical}"
             ),
             command=["fastboot", "-s", serial, "flash", partition, image_path],
             risk=RiskLevel.HIGH,
@@ -139,10 +171,17 @@ class FlashCapability(Capability):
                 reversible=False,
             )
         )
+        critical = sorted(p for p, _ in ordered if p in CRITICAL_PARTITIONS)
+        critical_note = (
+            f" This plan writes CRITICAL partition(s) ({', '.join(critical)}); "
+            "a wrong image there can hard-brick the device."
+            if critical
+            else ""
+        )
         summary = (
             f"Flash {len(ordered)} partition(s) to '{expected_product}' in the "
             "recommended order, then reboot. HIGH risk: this can erase data and, "
             "if an image is wrong for your model, brick the device. The target "
-            "has been verified against the connected device."
+            f"has been verified against the connected device.{critical_note}"
         )
         return Plan(mission=Mission.FLASH, summary=summary, steps=steps)

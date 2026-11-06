@@ -103,7 +103,7 @@ rejected.
 
 | Dependency | Why |
 |---|---|
-| **Podman** or **Docker** | Run `adb`/`fastboot` inside a network-less, least-privilege container (`--runner container`) |
+| **Podman** or **Docker** | Run `adb`/`fastboot` inside a hardened, least-privilege container (`--runner container`; network-less on Linux, host gateway on Windows/macOS). **Experimental — unverified on hardware; prefer `--runner local`.** |
 
 ### 2.4 One-line installs
 

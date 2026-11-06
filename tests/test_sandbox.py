@@ -7,7 +7,8 @@ from android_agent.bridge.sandbox import ContainerRunner, RunOutput, _child_env
 def test_build_command_linux_usb_passthrough_no_network():
     runner = ContainerRunner(image="img", platform="linux")
     cmd = runner.build_command(["adb", "-s", "S1", "shell", "getprop"], engine="podman")
-    assert cmd[:4] == ["podman", "run", "--rm", "-i"]
+    assert cmd[:3] == ["podman", "run", "--rm"]
+    assert "-i" not in cmd  # no interactive TTY; stdin is DEVNULL (audit L7)
     assert "--network" in cmd and "none" in cmd
     assert "--device=/dev/bus/usb" in cmd
     # inner command is passed through unchanged on Linux
@@ -116,3 +117,60 @@ def test_run_without_engine_reports_cleanly():
         out: RunOutput = runner.run(["adb", "devices"])
         assert out.returncode == 127
         assert "container engine" in out.stderr
+
+
+def test_run_invokes_engine_and_returns_output(monkeypatch):
+    # ContainerRunner.run builds the argv, names the container and runs it; a
+    # fake engine lets us exercise run() end-to-end cross-platform (audit M10).
+    runner = ContainerRunner(image="img", engine="docker", platform="linux")
+    seen: dict = {}
+
+    def fake_run_subprocess(argv, timeout):
+        seen["argv"] = argv
+        return RunOutput(0, "List of devices attached\n", "")
+
+    monkeypatch.setattr(sandbox, "_run_subprocess", fake_run_subprocess)
+    out = runner.run(["adb", "devices"])
+    assert out.ok and "List of devices attached" in out.stdout
+    argv = seen["argv"]
+    # a unique --name is injected right after `run`
+    assert argv[1] == "run"
+    assert any(tok.startswith("--name=android-agent-") for tok in argv)
+
+
+def test_run_force_removes_container_on_timeout(monkeypatch):
+    # If the toolchain hangs past the timeout, the orphan container is torn down
+    # with `engine rm -f <name>` (audit L7).
+    runner = ContainerRunner(image="img", engine="docker", platform="linux")
+    monkeypatch.setattr(sandbox, "_run_subprocess", lambda argv, timeout: RunOutput(124, "", "to"))
+    removed: dict = {}
+
+    def fake_run(argv, **kwargs):
+        removed["argv"] = argv
+
+        class _P:
+            returncode, stdout, stderr = 0, "", ""
+
+        return _P()
+
+    monkeypatch.setattr(sandbox.subprocess, "run", fake_run)
+    out = runner.run(["adb", "devices"], timeout=0.01)
+    assert out.returncode == 124
+    # engine() may resolve to an absolute path (audit L10), so assert on the
+    # tail of the cleanup argv rather than the literal engine name.
+    assert removed["argv"][1:3] == ["rm", "-f"]
+    assert removed["argv"][3].startswith("android-agent-")
+
+
+def test_child_env_strips_credential_shaped_vars(monkeypatch):
+    # Not just the two LLM keys: anything token/secret/key-shaped or in a cloud
+    # credential family is kept from the toolchain (audit L5).
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_x")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "y")
+    monkeypatch.setenv("SOME_PASSWORD", "z")
+    monkeypatch.setenv("PATH", "/usr/bin")
+    env = _child_env()
+    assert "GITHUB_TOKEN" not in env
+    assert "AWS_SECRET_ACCESS_KEY" not in env
+    assert "SOME_PASSWORD" not in env
+    assert env.get("PATH") == "/usr/bin"

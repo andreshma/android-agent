@@ -82,8 +82,17 @@ class ActionLog:
             event["prev"] = prev
             event["hash"] = _entry_hash(prev, event)
             self.path.parent.mkdir(parents=True, exist_ok=True)
+            is_new = not self.path.exists()
             with self.path.open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(event, ensure_ascii=False) + "\n")
+            if is_new:
+                # Owner-only: the trail records serials and commands, so keep it
+                # off other local users' eyes (best-effort; a no-op on Windows
+                # ACLs) — audit L1.
+                try:
+                    os.chmod(self.path, 0o600)
+                except OSError:
+                    pass
             self._last_hash = event["hash"]
         except OSError:
             # Best-effort: never let logging break a device operation.

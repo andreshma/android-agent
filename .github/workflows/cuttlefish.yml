@@ -40,6 +40,15 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Validate dispatch inputs
+        # The branch/device inputs are interpolated into shell and a python -c
+        # program below; constrain them to a safe charset so a crafted dispatch
+        # input can't inject anything (audit L9).
+        run: |
+          set -euo pipefail
+          printf '%s' "$BRANCH" | grep -Eq '^[A-Za-z0-9._-]+$' || { echo "::error::bad branch input"; exit 1; }
+          printf '%s' "$DEVICE" | grep -Eq '^[A-Za-z0-9._-]+$' || { echo "::error::bad device input"; exit 1; }
+
       - name: Set up Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
@@ -65,11 +74,15 @@ jobs:
 
       - name: Install Cuttlefish host packages (apt)
         run: |
+          # Scope the signing key to this one repo with `signed-by` instead of
+          # dropping it into the global trusted.gpg.d, so it can't vouch for any
+          # other apt source (audit L9).
+          sudo install -m 0755 -d /etc/apt/keyrings
           sudo curl -fsSL https://us-apt.pkg.dev/doc/repo-signing-key.gpg \
-            -o /etc/apt/trusted.gpg.d/artifact-registry.asc
-          sudo chmod a+r /etc/apt/trusted.gpg.d/artifact-registry.asc
-          echo "deb https://us-apt.pkg.dev/projects/android-cuttlefish-artifacts android-cuttlefish main" \
-            | sudo tee -a /etc/apt/sources.list.d/artifact-registry.list
+            -o /etc/apt/keyrings/artifact-registry.gpg
+          sudo chmod a+r /etc/apt/keyrings/artifact-registry.gpg
+          echo "deb [signed-by=/etc/apt/keyrings/artifact-registry.gpg] https://us-apt.pkg.dev/projects/android-cuttlefish-artifacts android-cuttlefish main" \
+            | sudo tee /etc/apt/sources.list.d/artifact-registry.list
           sudo apt-get update
           sudo apt-get install -y cuttlefish-base cuttlefish-user cuttlefish-orchestration
           sudo usermod -aG kvm,cvdnetwork,render "$USER"

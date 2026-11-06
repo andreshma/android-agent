@@ -21,6 +21,43 @@ def _plan() -> Plan:
     )
 
 
+def test_chain_continues_across_separate_instances(tmp_path):
+    # Each CLI invocation builds a fresh ActionLog; the chain must still link
+    # across processes via _read_last_hash, and verify() must hold (audit M10).
+    path = tmp_path / "actions.jsonl"
+    first = ActionLog(path=path)
+    first.consent_recorded("S1")
+    first.plan_proposed("S1", _plan())
+
+    # A brand-new instance (as a second `android-agent` run would create) must
+    # pick up the previous tail hash, not restart from genesis.
+    second = ActionLog(path=path)
+    second.plan_confirmed("S1", _plan())
+    second.step_executed("S1", StepResult(step=_plan().steps[0], ok=True))
+
+    assert ActionLog(path=path).verify() is True
+    lines = [json.loads(ln) for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    assert len(lines) == 4
+    # the second instance's first entry chains onto the first instance's tail
+    assert lines[2]["prev"] == lines[1]["hash"]
+
+
+def test_verify_detects_a_tampered_middle_entry(tmp_path):
+    path = tmp_path / "actions.jsonl"
+    log = ActionLog(path=path)
+    log.consent_recorded("S1")
+    log.plan_proposed("S1", _plan())
+    log.step_executed("S1", StepResult(step=_plan().steps[0], ok=True))
+    assert ActionLog(path=path).verify() is True
+
+    lines = path.read_text(encoding="utf-8").splitlines()
+    middle = json.loads(lines[1])
+    middle["serial"] = "TAMPERED"  # edit content without fixing the hash
+    lines[1] = json.dumps(middle, ensure_ascii=False)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    assert ActionLog(path=path).verify() is False
+
+
 def test_log_writes_jsonl(tmp_path):
     log = ActionLog(path=tmp_path / "actions.jsonl")
     plan = _plan()

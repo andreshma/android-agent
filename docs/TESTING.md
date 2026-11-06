@@ -15,15 +15,19 @@ ruff check .
 mypy src
 ```
 
-One flow is also exercised through the **real execution path**: `flash-rom` runs
-against an executable `adb`/`fastboot` **stub** (`tests/test_flash_integration.py`),
-so `LocalRunner` actually spawns a process (`shell=False`), and the real parsers
-handle its output — device discovery, the live `getvar product` target check, the
-ordered partition flash and the reboot. It proves the *flow* end-to-end over real
-process I/O (the fake-bridge tests stop at the Python boundary); it does **not**
-prove flashing itself, which only real hardware can. POSIX-only (the stub needs a
-shebang); it is skipped on Windows, where image-path handling is covered by the
-allowlist unit tests.
+The two HIGH-risk flows are also exercised through the **real execution path**:
+`flash-rom` and `unlock` run against an executable `adb`/`fastboot` **stub**
+(`tests/test_flash_integration.py`), so `LocalRunner` actually spawns a process
+(`shell=False`) and the real parsers handle its output — device discovery, the
+live `getvar product` target check, the ordered partition flash (including
+re-ordering images given out of order), the reboot, the `getvar unlocked` read,
+the `fastboot flashing unlock` command, and the consent gate blocking unlock
+before any process spawns. It proves the *flow* end-to-end over real process I/O
+(the fake-bridge tests stop at the Python boundary); it does **not** prove the
+flashing or the unlock itself — only real hardware can, since the stub cannot
+reproduce a vendor bootloader, its data wipe, or its on-screen confirmation.
+POSIX-only (the stub needs a shebang); it is skipped on Windows, where
+image-path handling is covered by the allowlist unit tests.
 
 CI runs this matrix on **Windows and Linux** across Python 3.10–3.12, plus a
 locked-install (`uv --frozen`) job and a `pip-audit` supply-chain job.
@@ -40,11 +44,12 @@ coverage claims stay honest:
 | `debloat` disable → re-enable | Live on the emulator; reversibility confirmed independently via `adb shell pm enable` | ✅ reversible cycle |
 | LLM round-trip | Live with **Ollama** (`llama3.1`) and **Claude** — plan proposed, parsed, risk re-derived | ✅ both backends |
 | Allowlist guardrail | Live: a model-proposed non-allowlisted command (`pm list permissions` before it was added; a prefix-less command) was **rejected** before running | ✅ guardrail fired |
-| `optimize` battery ranking | `battery.top_power_consumers` unit-tested on captured `dumpsys` output, **not** yet run live | ⚠️ parser tested, not live |
+| `optimize` read path (battery ranking + bloatware) | Live on the emulator (`emulator-smoke` job): `gather_facts` runs `pm list packages`, bloatware detection and `battery.top_power_consumers` over real `dumpsys batterystats`. The parser is **invoked** live (a crash would fail the job), but an emulator reports no per-uid power rows, so the ranking *output* is validated only by the unit tests on captured `dumpsys` | ✅ parser invoked live; output unit-tested |
 | `flash-rom` flow | Driven through the **real subprocess path** against an adb/fastboot stub (`test_flash_integration.py`): discovery, live target check, ordered flash, reboot | ✅ flow over real process I/O |
 | `flash-rom` / `run flash` **on hardware** | Full suite + manual checklist; actual flashing **cannot** run on an emulator (no fastboot) | ⚠️ hardware-only, unverified live |
-| `run unlock` (bootloader) | Suite + checklist; **cannot** run on an emulator | ⚠️ hardware-only, unverified live |
-| Container runner (`--runner container`) | Unit-tested command construction; image must be built/trusted by the operator | ⚠️ construction tested |
+| `unlock` flow | Driven through the **real subprocess path** against the stub (`test_flash_integration.py`): `getvar unlocked` read, `fastboot flashing unlock` issued, and the consent gate blocking it when the device is not authorized | ✅ flow over real process I/O |
+| `run unlock` (bootloader) **on hardware** | Suite + checklist; the real data wipe / on-screen prompt **cannot** run on an emulator | ⚠️ hardware-only, unverified live |
+| Container runner (`--runner container`) | Unit-tested command construction, **plus** a CI job (`container-runner`) that builds the sandbox image, Trivy-scans it, runs `adb` under the full hardening flags, and exercises the `--runner container` path end-to-end (no device attached, so flashing itself is still not covered) | ✅ image builds, scanned & runs |
 
 The emulator cannot enter fastboot mode, so **flash and unlock have never been
 exercised against real hardware by the maintainer** — they rest on the test

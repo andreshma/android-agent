@@ -39,8 +39,8 @@ Two mechanisms carry the weight:
    every command so an action can only ever hit that one device.
 
 On top of that: a two-phase *propose → confirm → execute* flow, an extra
-explicit confirmation for HIGH-risk steps, and an optional network-less
-container sandbox for the toolchain.
+explicit confirmation for HIGH-risk steps, and an optional hardened container
+sandbox for the toolchain (network-less on Linux; experimental).
 
 See [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) for the full STRIDE analysis.
 
