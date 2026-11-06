@@ -11,12 +11,13 @@ from __future__ import annotations
 
 import os
 
+from ..config import DEFAULT_ANTHROPIC_MODEL
 from ..models import Mission, Plan
 from . import schema
 from .base import LLM, SYSTEM_PROMPT
 
-# Default to the latest capable Claude model; override via constructor.
-_DEFAULT_MODEL = "claude-opus-4-8"
+# Single source of truth for the model id (audit L12).
+_DEFAULT_MODEL = DEFAULT_ANTHROPIC_MODEL
 
 
 class AnthropicLLM(LLM):
@@ -54,19 +55,27 @@ class AnthropicLLM(LLM):
         # We build the tool/tool_choice params as plain dicts (they match the
         # SDK's TypedDicts at runtime); mypy can't see that through the dict, so
         # the overload match is suppressed here deliberately.
-        msg = self._client.messages.create(  # type: ignore[call-overload]
-            model=self.model,
-            max_tokens=2048,
-            system=SYSTEM_PROMPT,
-            tools=[tool],
-            tool_choice={"type": "tool", "name": "emit_plan"},
-            messages=[
-                {
-                    "role": "user",
-                    "content": schema.build_user_prompt(mission, request, device_facts),
-                }
-            ],
-        )
+        from anthropic import NotFoundError
+
+        try:
+            msg = self._client.messages.create(  # type: ignore[call-overload]
+                model=self.model,
+                max_tokens=2048,
+                system=SYSTEM_PROMPT,
+                tools=[tool],
+                tool_choice={"type": "tool", "name": "emit_plan"},
+                messages=[
+                    {
+                        "role": "user",
+                        "content": schema.build_user_prompt(mission, request, device_facts),
+                    }
+                ],
+            )
+        except NotFoundError as exc:
+            raise RuntimeError(
+                f"the configured Anthropic model {self.model!r} was not found. "
+                "Set ANDROID_AGENT_ANTHROPIC_MODEL to a current model id."
+            ) from exc
         if getattr(msg, "stop_reason", None) == "max_tokens":
             raise RuntimeError(
                 "the model's plan was cut off at max_tokens before completing; "

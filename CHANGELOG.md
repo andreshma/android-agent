@@ -6,7 +6,71 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-11-06
+
+Security and robustness pass remediating a 360 audit and an adversarial review:
+plan validation unified across the LLM and deterministic paths, authoritative
+risk/reversibility, markup-safe output, honest container-mode docs, and broader
+CI (CodeQL, SBOM, Python 3.13). No breaking changes.
+
+### Security
+- **Deterministic plans are now validated before they run (H1).** `flash-rom`
+  and `debloat` build their plans without an LLM, but previously skipped the
+  allowlist/mission validation that LLM plans go through — so a partition name
+  the allowlist rejects (e.g. a typo like `init-boot`) passed every confirmation
+  prompt, flashed the earlier partitions, then aborted mid-flash with a raw
+  traceback. Both now pass the single `validate_plan` gate before anything runs,
+  and `Orchestrator.run` turns a late `CommandDenied` into a clean failed step.
+- **`pm clear` is HIGH risk, not LOW (M1).** It wipes an app's data; it now
+  requires the typed-`yes` gate and is marked irreversible.
+- **`reversible` / `undo` are derived from the allowlist, not trusted from the
+  LLM (M1/M2).** A model can no longer present a data wipe as "Reversible: yes".
+- **The raw command and a repo-authored description are shown for every HIGH
+  step (M2)**, so the operator confirms what will truly run, not the LLM's prose.
+- **Bootloader re-lock (`fastboot flashing lock`) is rejected for all missions
+  (M8)** — a deliberate non-goal that can brick a device on a custom ROM.
+- **Terminal output escapes device/LLM text (M3)**, so an adb/fastboot error
+  like `Failure [DELETE_FAILED_INTERNAL_ERROR]` is no longer swallowed by Rich
+  markup and a crafted `[/x]` can no longer crash the result printer.
+- **Device-fact prompt hardening (L2/L3):** the device serial is no longer sent
+  to a hosted LLM, angle brackets in facts are escaped, and the `<device_facts>`
+  delimiter carries a per-call random nonce, so a crafted device string cannot
+  break out of the untrusted-data block.
+- **Remote-Ollama egress is now disclosed (M9):** a non-loopback `OLLAMA_HOST`
+  triggers the same "data leaves your machine" warning as a hosted backend.
+- **Credential-shaped environment variables are stripped from the toolchain
+  child process (L5)** — not just the two LLM keys, but anything token/secret/
+  key/password-shaped or in a cloud/CI credential family.
+- Flash plans now **display each image's SHA-256 and size and flag critical/
+  bricking partitions** (M8); argument validators reject a leading `-` in
+  property/getvar names (L6); the audit log file is created `0600` (L1); the
+  container child process gets no stdin and orphaned containers are force-removed
+  on timeout (L7); the container engine is resolved to an absolute path (L10).
+
 ### Added
+- **`android-agent --version`** (L4) and **`android-agent log --verify`** to
+  check the action-log hash chain from the CLI (L1).
+- **CodeQL SAST workflow** and an **SBOM (CycloneDX) build artifact** in CI
+  (M11); `ruff format --check` and Python **3.13** added to the CI matrix (L8).
+- **Property-based tests** (Hypothesis) over the allowlist, a cross-process
+  action-log chain test, a `ContainerRunner.run` test, and real-subprocess
+  coverage for the H1 refusal and the production `run unlock` CLI path (M10).
+- **Live `optimize` read path in CI**: the `emulator-smoke` job now also runs
+  the `optimize` mission's read-only fact gathering against the booted emulator
+  — `pm list packages`, bloatware detection and the battery ranking
+  (`battery.top_power_consumers` over real `dumpsys batterystats`) — so the
+  ranking is exercised live, not only against captured output. Nothing is
+  disabled; it stays read-only.
+- **Container-runner CI job** (`container-runner`, informational): builds the
+  `docker/adb-tools.Dockerfile` sandbox image, **Trivy-scans** it (fails on an
+  unfixed CRITICAL), runs `adb` under the full hardening flags, and exercises
+  the `--runner container` path end-to-end. Raises the container runner from
+  "command construction tested" to "image builds, is scanned and runs" (real
+  flashing still needs a physical device).
+- **Gitflow + branch protection**: `develop` integration branch (now the default)
+  alongside `main`; both protected (no direct pushes, PR + green CI required).
+  CI runs on `develop` too. The branching model is documented in
+  [CONTRIBUTING.md](CONTRIBUTING.md).
 - **Experimental Cuttlefish flash workflow** (`.github/workflows/cuttlefish.yml`):
   a manual, non-blocking (`workflow_dispatch` + `continue-on-error`) job that
   launches a Cuttlefish virtual device — the only virtual Android with a real
@@ -24,6 +88,35 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   stop at the Python boundary) and a physical device (which an emulator can't
   stand in for, having no fastboot mode). POSIX-only; skipped on Windows, where
   image-path handling is covered by the allowlist unit tests.
+
+- **Real-subprocess coverage for the `unlock` flow** (and more `flash-rom`
+  scenarios) in `tests/test_flash_integration.py`: the bootloader unlock now
+  runs through the real execution path against the `adb`/`fastboot` stub —
+  `getvar unlocked` read over real I/O, `fastboot flashing unlock` issued
+  through `LocalRunner`, and the consent gate proven to block it before any
+  process spawns. A new flash scenario proves images given out of order are
+  still flashed in the recommended order (boot before system). Raises `unlock`
+  from "fake-bridge flow only" to "flow validated over real process I/O"; the
+  unlock itself remains hardware-only (the stub cannot reproduce a vendor
+  bootloader's data wipe or on-screen confirmation).
+
+### Fixed
+- **Container sandbox image had no `adb`/`fastboot` on `PATH`.** The
+  `docker/adb-tools.Dockerfile` installed the `android-sdk-platform-tools`
+  Debian package, which did not place the binaries on `PATH`, so
+  `--runner container` would have failed with `exec: "adb": not found`. The
+  unit tests only covered command *construction*, so this was never caught;
+  the new `container-runner` CI job surfaced it. Now installs the `adb` and
+  `fastboot` packages, which ship `/usr/bin/adb` and `/usr/bin/fastboot`.
+
+### Changed
+- **Container mode is documented honestly as experimental / unverified on
+  hardware (M5/M6/M7).** The docs no longer call it uniformly "network-less": it
+  is network-less on Linux, but on Windows/macOS it reaches the host gateway.
+  The sandbox base image is pinned by digest and declares `HEALTHCHECK NONE`
+  (M6/L11), with a note that Debian's platform-tools lag Google's current ones.
+- **Single source of truth for the default hosted model id** (`config.DEFAULT_
+  ANTHROPIC_MODEL`), and a clear error when that model id is not found (L12).
 
 ## [0.1.2] - 2026-11-04
 
@@ -239,7 +332,8 @@ finding remediated.
   checklist); unit tests use fake bridges.
 - `ContainerRunner` image must be built/trusted by the operator.
 
-[Unreleased]: https://github.com/andreshma/android-agent/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/andreshma/android-agent/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/andreshma/android-agent/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/andreshma/android-agent/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/andreshma/android-agent/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/andreshma/android-agent/releases/tag/v0.1.0

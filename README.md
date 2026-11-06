@@ -169,13 +169,20 @@ Pick either, swap freely — same interface:
 
 ## The container sandbox
 
-`--runner container` runs `adb`/`fastboot` inside a **network-less** container so
-a compromised toolchain or a malicious device payload can't reach the host or the
-internet.
+> **Experimental / unverified on hardware.** The container runner has not been
+> run against a physical phone by the maintainer (the per-call ephemeral adb key
+> and udev USB permissions are untested live). Prefer `--runner local` until you
+> have validated it on a spare device — see [docs/TESTING.md](docs/TESTING.md).
 
-- **Linux:** USB passthrough (`--device=/dev/bus/usb`), no network.
-- **Windows / macOS:** the container talks to the host's adb server over the
-  Docker/Podman gateway (USB can't be passed through directly there).
+`--runner container` runs `adb`/`fastboot` inside a hardened container so a
+compromised toolchain or a malicious device payload is contained. **Network
+isolation is not uniform across OSes:**
+
+- **Linux:** USB passthrough (`--device=/dev/bus/usb`) and **no network**
+  (`--network none`) — fully off the host and the internet.
+- **Windows / macOS:** USB can't be passed through, so the container talks to the
+  host's adb server over the Docker/Podman gateway. It therefore reaches that
+  gateway and is **not** network-isolated the way it is on Linux.
 
 It runs least-privilege: `--cap-drop=ALL`, `--security-opt=no-new-privileges`, a
 read-only root filesystem with a `/tmp` tmpfs, PID/memory limits, and a non-root
