@@ -7,16 +7,20 @@ explicit yes for HIGH-risk plans). The heavy lifting lives in the orchestrator.
 
 from __future__ import annotations
 
+import urllib.parse
 from enum import Enum
+from importlib.metadata import PackageNotFoundError, version
 
 import httpx
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 
 from . import consent
 from .audit_log import ActionLog
+from .bridge import allowlist
 from .bridge.allowlist import CommandDenied
 from .bridge.device import Bridge
 from .bridge.sandbox import ContainerRunner, LocalRunner
@@ -32,6 +36,29 @@ app = typer.Typer(
     pretty_exceptions_show_locals=False,  # never render locals (could leak an API key)
 )
 console = Console()
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        try:
+            v = version("android-agent")
+        except PackageNotFoundError:  # pragma: no cover - always installed in practice
+            v = "unknown"
+        console.print(f"android-agent {v}")
+        raise typer.Exit()
+
+
+@app.callback()
+def _main(
+    version: bool = typer.Option(
+        None,
+        "--version",
+        callback=_version_callback,
+        is_eager=True,
+        help="Show the installed version and exit.",
+    ),
+) -> None:
+    """LLM-driven agent for YOUR OWN Android device."""
 
 
 class RunnerKind(str, Enum):
@@ -72,30 +99,32 @@ def _llm_kwargs(cfg: Config) -> dict:
     return {}
 
 
-def _show_plan(plan: Plan, *, drill_down: bool) -> None:
-    console.print(Panel(plan.summary, title=f"Plan · {plan.mission.value}", expand=False))
+def _show_plan(plan: Plan, *, drill_down: bool = False) -> None:
+    # ``drill_down`` is kept for compatibility, but the raw command is now shown
+    # for EVERY step by default (audit M2): the operator should always be able
+    # to see what will actually run, not only the LLM-authored description. All
+    # dynamic text is escaped so device/LLM output can't inject Rich markup
+    # (audit M3).
+    console.print(Panel(escape(plan.summary), title=f"Plan · {plan.mission.value}", expand=False))
     table = Table(show_lines=False)
     table.add_column("#", justify="right")
     table.add_column("What it does")
     table.add_column("Risk")
     table.add_column("Reversible")
-    if drill_down:
-        table.add_column("Command")
+    table.add_column("Command")
     for i, step in enumerate(plan.steps, 1):
         risk_style = {
             RiskLevel.NONE: "green",
             RiskLevel.LOW: "yellow",
             RiskLevel.HIGH: "bold red",
         }[step.risk]
-        row = [
+        table.add_row(
             str(i),
-            step.human,
+            escape(step.human),
             f"[{risk_style}]{step.risk.value}[/]",
             "yes" if step.reversible else "no",
-        ]
-        if drill_down:
-            row.append(" ".join(step.command))
-        table.add_row(*row)
+            escape(" ".join(step.command)),
+        )
     console.print(table)
 
 
@@ -167,17 +196,40 @@ def run(
     _confirm_and_run(orch, device, plan)
 
 
+def _ollama_host_is_remote(cfg: Config) -> bool:
+    """True if the configured Ollama host is not loopback, so device facts would
+    leave this machine even on the "local" backend (audit M9)."""
+    raw = (cfg.ollama_host or "").strip()
+    parsed = urllib.parse.urlparse(raw if "://" in raw else "//" + raw)
+    host = (parsed.hostname or "").lower()
+    return host not in {"", "localhost", "127.0.0.1", "::1"}
+
+
 def _disclose_egress(cfg: Config) -> None:
     """Warn the operator when the chosen backend sends device data off-machine."""
     if is_hosted(cfg.llm_backend):
         console.print(
             Panel(
                 "You selected a HOSTED LLM backend "
-                f"([bold]{cfg.llm_backend}[/]). Read-only device facts (model, "
-                "product, installed package names, system properties) will be "
-                "sent to that third-party API to plan this mission. Use the "
-                "default [bold]ollama[/] backend to keep all device data on this "
-                "machine.",
+                f"([bold]{escape(cfg.llm_backend)}[/]). Read-only device facts "
+                "(model, product, installed package names, system properties) "
+                "will be sent to that third-party API to plan this mission. Use "
+                "the default [bold]ollama[/] backend on a local host to keep all "
+                "device data on this machine.",
+                title="Data leaves your machine",
+                border_style="red",
+            )
+        )
+    elif cfg.llm_backend.lower() == "ollama" and _ollama_host_is_remote(cfg):
+        scheme = urllib.parse.urlparse(cfg.ollama_host).scheme or "http"
+        cleartext = " The connection is plain HTTP (not encrypted)." if scheme == "http" else ""
+        console.print(
+            Panel(
+                f"Your Ollama host [bold]{escape(cfg.ollama_host)}[/] is NOT this "
+                "machine. Read-only device facts (model, product, installed "
+                "package names, system properties) will be sent there to plan "
+                f"this mission.{cleartext} Point OLLAMA_HOST at localhost to keep "
+                "all device data on this machine.",
                 title="Data leaves your machine",
                 border_style="red",
             )
@@ -203,6 +255,18 @@ def _confirm_and_run(orch: Orchestrator, device, plan: Plan) -> None:
         console.print(
             "[bold red]This plan contains HIGH-risk, irreversible steps (data may be erased).[/]"
         )
+        # Show the repo-authored description and the exact command for every
+        # HIGH step, so the operator confirms what will truly run rather than the
+        # LLM's own wording (audit M2).
+        for step in plan.steps:
+            if step.risk is RiskLevel.HIGH:
+                try:
+                    desc = allowlist.description_for(step.command)
+                except CommandDenied:  # pragma: no cover - plan is validated first
+                    desc = "(unrecognized command)"
+                console.print(
+                    f"   [red]•[/] {escape(desc)}: [dim]{escape(' '.join(step.command))}[/]"
+                )
         # Require the literal word "yes": typer.confirm would accept a bare "y",
         # so a piped `yes |` could auto-answer a destructive plan (audit L5).
         typed = typer.prompt("Type the word 'yes' to confirm you understand and want to proceed")
@@ -216,9 +280,9 @@ def _confirm_and_run(orch: Orchestrator, device, plan: Plan) -> None:
     results = orch.run(device, plan)
     for i, res in enumerate(results, 1):
         mark = "[green]ok[/]" if res.ok else "[red]failed[/]"
-        console.print(f"{i}. {mark} — {res.step.human}")
+        console.print(f"{i}. {mark} — {escape(res.step.human)}")
         if not res.ok and res.error:
-            console.print(f"   [red]{res.error.strip()}[/]")
+            console.print(f"   [red]{escape(res.error.strip())}[/]")
     skipped = len(plan.steps) - len(results)
     if skipped > 0:
         console.print(
@@ -263,6 +327,13 @@ def debloat(
     orch = Orchestrator(None, bridge, log=action_log)
     optimize = orch.capability(Mission.OPTIMIZE)
     plan = optimize.build_debloat_plan(device)  # type: ignore[attr-defined]
+    # Validate the deterministic plan through the same gate as an LLM plan
+    # (allowlist + mission + protected-package + authoritative risk) — audit H1.
+    try:
+        orch.validate(plan)
+    except (CommandDenied, PlanRejected) as exc:
+        console.print(f"[bold red]Rejected the plan:[/] {escape(str(exc))}")
+        raise typer.Abort() from exc
     if action_log:
         action_log.plan_proposed(device.serial, plan)
     _show_plan(plan, drill_down=drill_down)
@@ -306,8 +377,12 @@ def flash_rom(
     flash = orch.capability(Mission.FLASH)
     try:
         plan = flash.build_rom_flash_plan(device, product, images)  # type: ignore[attr-defined]
-    except (FlashTargetMismatch, FileNotFoundError, ValueError) as exc:
-        console.print(f"[bold red]Refusing to flash:[/] {exc}")
+        # Validate the built plan before showing it, so a partition name the
+        # allowlist rejects is caught here — not mid-flash after earlier
+        # partitions were already written (audit H1).
+        orch.validate(plan)
+    except (FlashTargetMismatch, FileNotFoundError, ValueError, CommandDenied, PlanRejected) as exc:
+        console.print(f"[bold red]Refusing to flash:[/] {escape(str(exc))}")
         raise typer.Abort() from exc
     if action_log:
         action_log.plan_proposed(device.serial, plan)
@@ -319,9 +394,25 @@ def flash_rom(
 def show_log(
     serial: str = typer.Option(None, "--serial", "-s", help="Filter by device serial."),
     limit: int = typer.Option(20, help="Show the most recent N entries."),
+    verify: bool = typer.Option(
+        False, "--verify", help="Check the hash chain is intact and report the result."
+    ),
 ) -> None:
     """Show the recorded action trail (what was proposed and what ran)."""
-    entries = list(ActionLog().read_entries(serial=serial))
+    log = ActionLog()
+    if verify:
+        # Integrity check: the hash chain detects a reordered, edited or removed
+        # entry (audit L1). It cannot detect truncation of the tail on its own —
+        # ship the log to append-only storage for that.
+        if log.verify():
+            console.print("[green]Action log integrity: OK[/] (hash chain intact).")
+        else:
+            console.print(
+                "[bold red]Action log integrity: FAILED[/] — the hash chain is "
+                "broken (an entry was reordered, edited or removed)."
+            )
+            raise typer.Exit(code=1)
+    entries = list(log.read_entries(serial=serial))
     if not entries:
         console.print("[yellow]No logged actions yet.[/]")
         return
@@ -340,13 +431,13 @@ def show_log(
             detail = "operator confirmed ownership/consent"
         elif event == "step_executed":
             mark = "[green]ok[/]" if e.get("ok") else "[red]fail[/]"
-            detail = f"{mark} {' '.join(e.get('command', []))}"
+            detail = f"{mark} {escape(' '.join(e.get('command', [])))}"
         else:
             detail = ""
         table.add_row(
-            (e.get("ts", "") or "")[:19],
-            e.get("serial", "") or "",
-            e.get("event", "") or "",
+            escape((e.get("ts", "") or "")[:19]),
+            escape(e.get("serial", "") or ""),
+            escape(e.get("event", "") or ""),
             detail,
         )
     console.print(table)

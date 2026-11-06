@@ -88,9 +88,7 @@ def test_flash_rejects_option_like_image_path():
 def test_flash_allows_real_image_paths(image_path):
     # The image path runs host-side with shell=False, so legitimate path
     # characters must be accepted (otherwise flashing is impossible on Windows).
-    assert (
-        allowlist.validate(["fastboot", "flash", "boot", image_path]) == "fastboot:flash"
-    )
+    assert allowlist.validate(["fastboot", "flash", "boot", image_path]) == "fastboot:flash"
 
 
 def test_flash_rejects_control_chars_in_image_path():

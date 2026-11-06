@@ -91,8 +91,9 @@ def _fastboot(serial="S1"):
 
 
 def _step(cap, human, command, risk=RiskLevel.NONE, reversible=True, undo=None):
-    return Step(capability=cap, human=human, command=command, risk=risk,
-                reversible=reversible, undo=undo)
+    return Step(
+        capability=cap, human=human, command=command, risk=risk, reversible=reversible, undo=undo
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -115,13 +116,19 @@ def test_run_audit(monkeypatch):
         lambda m: Plan(
             mission=m,
             summary="Read the Android version.",
-            steps=[_step("audit", "Read the Android version",
-                         ["adb", "shell", "getprop", "ro.build.version.release"])],
+            steps=[
+                _step(
+                    "audit",
+                    "Read the Android version",
+                    ["adb", "shell", "getprop", "ro.build.version.release"],
+                )
+            ],
         )
     )
     _patch(monkeypatch, bridge, llm)
-    result = runner.invoke(cli.app, ["run", "audit", "what version", "-s", "S1", "--no-log"],
-                           input="y\ny\n")
+    result = runner.invoke(
+        cli.app, ["run", "audit", "what version", "-s", "S1", "--no-log"], input="y\ny\n"
+    )
     assert result.exit_code == 0, result.stdout
     assert "Read the Android version" in result.stdout
     assert "ok" in result.stdout
@@ -136,14 +143,21 @@ def test_run_optimize(monkeypatch):
         lambda m: Plan(
             mission=m,
             summary="Disable one app.",
-            steps=[_step("optimize", "Disable the news app",
-                         ["adb", "shell", "pm", "disable-user", "com.x.news"],
-                         risk=RiskLevel.LOW, undo=["adb", "shell", "pm", "enable", "com.x.news"])],
+            steps=[
+                _step(
+                    "optimize",
+                    "Disable the news app",
+                    ["adb", "shell", "pm", "disable-user", "com.x.news"],
+                    risk=RiskLevel.LOW,
+                    undo=["adb", "shell", "pm", "enable", "com.x.news"],
+                )
+            ],
         )
     )
     _patch(monkeypatch, bridge, llm)
-    result = runner.invoke(cli.app, ["run", "optimize", "declutter", "-s", "S1", "--no-log"],
-                           input="y\ny\n")
+    result = runner.invoke(
+        cli.app, ["run", "optimize", "declutter", "-s", "S1", "--no-log"], input="y\ny\n"
+    )
     assert result.exit_code == 0, result.stdout
     assert bridge.ran("disable-user com.x.news")
 
@@ -155,16 +169,25 @@ def test_run_stops_after_failed_step(monkeypatch):
             mission=m,
             summary="Disable two apps.",
             steps=[
-                _step("optimize", "Disable failing app",
-                      ["adb", "shell", "pm", "disable-user", "com.fail.app"], risk=RiskLevel.LOW),
-                _step("optimize", "Disable second app",
-                      ["adb", "shell", "pm", "disable-user", "com.other.app"], risk=RiskLevel.LOW),
+                _step(
+                    "optimize",
+                    "Disable failing app",
+                    ["adb", "shell", "pm", "disable-user", "com.fail.app"],
+                    risk=RiskLevel.LOW,
+                ),
+                _step(
+                    "optimize",
+                    "Disable second app",
+                    ["adb", "shell", "pm", "disable-user", "com.other.app"],
+                    risk=RiskLevel.LOW,
+                ),
             ],
         )
     )
     _patch(monkeypatch, bridge, llm)
-    result = runner.invoke(cli.app, ["run", "optimize", "x", "-s", "S1", "--no-log"],
-                           input="y\ny\n")
+    result = runner.invoke(
+        cli.app, ["run", "optimize", "x", "-s", "S1", "--no-log"], input="y\ny\n"
+    )
     assert result.exit_code == 0, result.stdout
     # first failed; the second must be skipped, never executed
     assert "Stopped after a failed step" in result.stdout
@@ -195,8 +218,18 @@ def test_flash_rom(monkeypatch, tmp_path):
     _patch(monkeypatch, bridge)
     result = runner.invoke(
         cli.app,
-        ["flash-rom", "-s", "S1", "--product", "redfin",
-         "--image", f"boot={boot}", "--image", f"system={system}", "--no-log"],
+        [
+            "flash-rom",
+            "-s",
+            "S1",
+            "--product",
+            "redfin",
+            "--image",
+            f"boot={boot}",
+            "--image",
+            f"system={system}",
+            "--no-log",
+        ],
         input="y\nyes\ny\n",  # consent, typed HIGH 'yes', run
     )
     assert result.exit_code == 0, result.stdout
@@ -244,14 +277,23 @@ def test_run_unlock(monkeypatch):
         lambda m: Plan(
             mission=m,
             summary="Unlock the bootloader.",
-            steps=[_step("unlock", "Unlock the bootloader (erases data)",
-                         ["fastboot", "flashing", "unlock"],
-                         risk=RiskLevel.HIGH, reversible=False)],
+            steps=[
+                _step(
+                    "unlock",
+                    "Unlock the bootloader (erases data)",
+                    ["fastboot", "flashing", "unlock"],
+                    risk=RiskLevel.HIGH,
+                    reversible=False,
+                )
+            ],
         )
     )
     _patch(monkeypatch, bridge, llm)
-    result = runner.invoke(cli.app, ["run", "unlock", "unlock my bootloader", "-s", "S1",
-                                     "--no-log"], input="y\nyes\ny\n")
+    result = runner.invoke(
+        cli.app,
+        ["run", "unlock", "unlock my bootloader", "-s", "S1", "--no-log"],
+        input="y\nyes\ny\n",
+    )
     assert result.exit_code == 0, result.stdout
     assert bridge.ran("flashing unlock")
 
@@ -306,12 +348,16 @@ def test_device_not_found_aborts(monkeypatch):
 def test_hosted_backend_discloses_egress(monkeypatch):
     bridge = FakeBridge([_adb()])
     llm = _fake_llm(
-        lambda m: Plan(mission=m, summary="noop",
-                       steps=[_step("audit", "read", ["adb", "shell", "getprop", "ro.x"])])
+        lambda m: Plan(
+            mission=m,
+            summary="noop",
+            steps=[_step("audit", "read", ["adb", "shell", "getprop", "ro.x"])],
+        )
     )
     _patch(monkeypatch, bridge, llm)
     result = runner.invoke(
-        cli.app, ["run", "audit", "x", "-s", "S1", "--llm", "anthropic", "--no-log"],
+        cli.app,
+        ["run", "audit", "x", "-s", "S1", "--llm", "anthropic", "--no-log"],
         input="y\ny\n",
     )
     assert result.exit_code == 0, result.stdout
