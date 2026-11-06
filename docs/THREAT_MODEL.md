@@ -97,9 +97,12 @@ The **LLM output** and the **device output** are both treated as untrusted.
 
 ### Elevation of Privilege
 - *Toolchain or device payload reaching the host/network.* Mitigation: the
-  `ContainerRunner` runs adb/fastboot in a network-less container (USB passed
-  through on Linux; host adb server over the gateway on Windows/macOS), so a
-  compromised binary or payload is contained away from the host and internet.
+  `ContainerRunner` runs adb/fastboot in a hardened container — network-less on
+  Linux (`--network none`, USB passthrough); on Windows/macOS it reaches only the
+  host gateway for the adb server, so it is contained but **not** network-isolated
+  there. A compromised binary or payload is kept off the host filesystem either
+  way. (Container mode is experimental and unverified on hardware — see
+  docs/TESTING.md.)
   The container is run least-privilege: `--cap-drop=ALL`,
   `--security-opt=no-new-privileges`, a read-only root filesystem with a
   `/tmp` tmpfs, PID/memory limits, and a non-root user in the image. USB

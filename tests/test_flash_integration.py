@@ -45,7 +45,7 @@ PRODUCT = "redfin"
 # parsers: `fastboot devices` prints "<serial>\tfastboot"; `getvar` prints on
 # STDERR (as real fastboot does); `flash`/`reboot` are recorded to STUB_LOG.
 _STUB_SOURCE = textwrap.dedent(
-    '''\
+    """\
     #!/usr/bin/env python3
     import os
     import sys
@@ -102,7 +102,7 @@ _STUB_SOURCE = textwrap.dedent(
         sys.exit(0)
 
     sys.exit(0)
-    '''
+    """
 )
 
 
@@ -235,6 +235,77 @@ def test_flash_rom_reorders_partitions_real_subprocess(stub_log, tmp_path):
         f"flash system {images['system']}",
         "reboot",
     ]
+
+
+def test_flash_rom_refuses_bad_partition_before_flashing(stub_log, tmp_path):
+    """A partition name the allowlist rejects (e.g. 'init-boot', which has a '-')
+    must be caught at plan-validation time — BEFORE any earlier partition is
+    written — not raised as a traceback mid-flash (audit H1)."""
+    images = _make_images(tmp_path)
+    bad = tmp_path / "initboot.img"
+    bad.write_bytes(b"\x00" * 16)
+    result = CliRunner().invoke(
+        app,
+        [
+            "flash-rom",
+            "-s",
+            SERIAL,
+            "--product",
+            PRODUCT,
+            "--image",
+            f"boot={images['boot']}",
+            "--image",
+            f"init-boot={bad}",  # '-' is not allowed in a partition name
+            "--no-log",
+        ],
+        input="y\nyes\ny\n",
+    )
+    assert result.exit_code != 0
+    assert "Refusing to flash" in result.output
+    # Crucially, NOTHING was flashed — not even the valid 'boot' partition.
+    assert not stub_log.exists() or stub_log.read_text(encoding="utf-8") == ""
+
+
+def test_run_unlock_full_cli_flow_real_subprocess(stub_log, monkeypatch):
+    """Drive the *production* `run unlock` path end-to-end over real processes:
+    a (fake) LLM proposes the unlock plan, the CLI enforces the typed-'yes'
+    HIGH-risk gate, and only then does `fastboot flashing unlock` reach the stub
+    through LocalRunner. This covers the real orchestration path, not just the
+    test-only capability builder (audit M10)."""
+    from android_agent import cli
+    from android_agent.models import Mission, Plan, RiskLevel, Step
+
+    class _UnlockLLM:
+        name = "fake"
+
+        def propose_plan(self, *, mission, request, device_facts):
+            return Plan(
+                mission=Mission.UNLOCK,
+                summary="Unlock the bootloader (erases data).",
+                steps=[
+                    Step(
+                        capability="unlock",
+                        human="Unlock the bootloader",
+                        command=["fastboot", "flashing", "unlock"],
+                        risk=RiskLevel.HIGH,
+                        reversible=False,
+                    )
+                ],
+            )
+
+        def explain(self, text):  # pragma: no cover
+            return text
+
+    monkeypatch.setattr(cli, "make_llm", lambda backend, **kw: _UnlockLLM())
+    result = CliRunner().invoke(
+        app,
+        ["run", "unlock", "unlock my bootloader", "-s", SERIAL, "--no-log"],
+        # consent 'y', HIGH typed 'yes', run 'y'
+        input="y\nyes\ny\n",
+    )
+    assert result.exit_code == 0, result.output
+    calls = stub_log.read_text(encoding="utf-8").splitlines()
+    assert calls == ["flashing unlock"]
 
 
 def test_unlock_flow_real_subprocess(stub_log):

@@ -97,8 +97,11 @@ def test_log_renders_recorded_entries(monkeypatch, tmp_path):
     plan = Plan(
         mission=Mission.OPTIMIZE,
         summary="x",
-        steps=[Step(capability="optimize", human="h", command=["adb", "shell", "x"],
-                    risk=RiskLevel.LOW)],
+        steps=[
+            Step(
+                capability="optimize", human="h", command=["adb", "shell", "x"], risk=RiskLevel.LOW
+            )
+        ],
     )
     log.consent_recorded("S1")
     log.plan_proposed("S1", plan)
@@ -160,6 +163,88 @@ def test_egress_disclosure_silent_for_local_backend(capsys):
     assert capsys.readouterr().out.strip() == ""
 
 
+def test_egress_disclosure_shown_for_remote_ollama(capsys):
+    # Ollama is "local" only if its host is loopback; a remote host still sends
+    # device data off-machine and must be disclosed (audit M9).
+    cli._disclose_egress(Config(llm_backend="ollama", ollama_host="http://10.0.0.5:11434"))
+    out = capsys.readouterr().out
+    assert "Data leaves your machine" in out
+    assert "10.0.0.5" in out
+
+
+def test_show_plan_escapes_markup_in_untrusted_text(capsys):
+    # A step description / command containing Rich markup must not be
+    # interpreted (it would drop text or crash the renderer) — audit M3.
+    from android_agent.models import Mission, Plan, RiskLevel, Step
+
+    plan = Plan(
+        mission=Mission.AUDIT,
+        summary="summary [/oops] end",
+        steps=[
+            Step(
+                capability="audit",
+                human="Failure [DELETE_FAILED] here",
+                command=["adb", "shell", "getprop", "ro.x"],
+                risk=RiskLevel.NONE,
+            )
+        ],
+    )
+    cli._show_plan(plan)  # must not raise MarkupError
+    out = capsys.readouterr().out
+    assert "[DELETE_FAILED]" in out  # bracketed token is preserved, not swallowed
+    assert "[/oops]" in out
+
+
+def test_version_flag(capsys):
+    result = runner.invoke(cli.app, ["--version"])
+    assert result.exit_code == 0
+    assert "android-agent" in result.stdout
+
+
+def test_log_verify_ok_and_failure(monkeypatch, tmp_path):
+    from android_agent.audit_log import ActionLog
+
+    p = tmp_path / "actions.jsonl"
+    monkeypatch.setenv("ANDROID_AGENT_LOG", str(p))
+    log = ActionLog(path=p)
+    log.consent_recorded("S1")
+    log.plan_proposed("S1", _plan_cli())
+
+    ok = runner.invoke(cli.app, ["log", "--verify"])
+    assert ok.exit_code == 0
+    assert "OK" in ok.stdout
+
+    # Tamper with the first entry so the chain breaks.
+    lines = p.read_text(encoding="utf-8").splitlines()
+    import json as _json
+
+    first = _json.loads(lines[0])
+    first["serial"] = "HACKED"
+    lines[0] = _json.dumps(first, ensure_ascii=False)
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    bad = runner.invoke(cli.app, ["log", "--verify"])
+    assert bad.exit_code == 1
+    assert "FAILED" in bad.stdout
+
+
+def _plan_cli():
+    from android_agent.models import Mission, Plan, RiskLevel, Step
+
+    return Plan(
+        mission=Mission.OPTIMIZE,
+        summary="x",
+        steps=[
+            Step(
+                capability="optimize",
+                human="h",
+                command=["adb", "shell", "pm", "disable-user", "com.x"],
+                risk=RiskLevel.LOW,
+            )
+        ],
+    )
+
+
 def test_run_audit_happy_path(monkeypatch):
     device = Device(serial="S1", mode=DeviceMode.ADB)
     _patch_bridge(monkeypatch, device)
@@ -195,9 +280,7 @@ def test_run_rejects_offmission_plan(monkeypatch):
             )
 
     monkeypatch.setattr(cli, "make_llm", lambda backend, **kw: _BadLLM())
-    result = runner.invoke(
-        cli.app, ["run", "audit", "do it", "-s", "S1", "--no-log"], input="y\n"
-    )
+    result = runner.invoke(cli.app, ["run", "audit", "do it", "-s", "S1", "--no-log"], input="y\n")
     assert result.exit_code != 0
     assert "Rejected" in result.stdout
 

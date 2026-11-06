@@ -20,7 +20,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       # Actions pinned by commit SHA (audit M9); the comment records the tag.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -38,6 +38,12 @@ jobs:
 
       - name: Lint (ruff)
         run: ruff check .
+
+      - name: Format check (ruff)
+        # Scope to Python source only: ruff's handling of code blocks embedded in
+        # Markdown varies across ruff versions, which would make this check flap
+        # on a formatter bump unrelated to our code (audit L8).
+        run: ruff format --check src tests scripts
 
       - name: Type check (mypy)
         run: mypy src
@@ -159,13 +165,58 @@ jobs:
             --read-only --tmpfs=/tmp -e HOME=/tmp \
             android-agent/adb-tools:latest adb version
 
-      - name: Drive the ContainerRunner path end-to-end
-        # `android-agent devices --runner container` builds the hardened
-        # `docker run` invocation, runs adb inside the sandbox and parses its
-        # output. No phone is attached, so it correctly lists no devices; the
-        # point is that the real container code path spawns and returns cleanly.
+      - name: Drive the ContainerRunner path end-to-end (assert, don't assume)
+        # Exercise the REAL ContainerRunner.execute path and assert on concrete
+        # behaviour rather than passing vacuously (audit M10 / adversarial
+        # review): `android-agent devices` alone can't tell "ran cleanly, no
+        # phone" from "docker failed" (both print nothing and exit 0).
+        #
+        # A hosted runner has no USB device node, so docker rejects
+        # `--device=/dev/bus/usb` — that is the expected environment limitation
+        # (container mode genuinely needs real hardware, audit M7), NOT a code
+        # defect. So: accept adb's banner if a USB bus exists, OR that specific
+        # device-node error (which proves the ContainerRunner built a correct
+        # docker invocation and reached device attachment); fail on anything else.
         run: |
-          # ContainerRunner passes --device=/dev/bus/usb on Linux; ensure the
-          # path exists on the hosted runner so `docker run` accepts it.
-          [ -e /dev/bus/usb ] || sudo mkdir -p /dev/bus/usb
-          android-agent devices --runner container
+          python - <<'PY'
+          import sys
+          from android_agent.bridge.device import Bridge
+          from android_agent.bridge.sandbox import ContainerRunner
+
+          # Force docker: the image was built into docker's daemon above, and the
+          # runner also has podman (which engine() would otherwise prefer and
+          # which can't see a docker-built image).
+          out = Bridge(ContainerRunner(engine="docker")).execute(["adb", "devices"])
+          print(f"rc={out.returncode}\nstdout={out.stdout!r}\nstderr={out.stderr!r}")
+          err = out.stderr.lower()
+          usb_limitation = "/dev/bus/usb" in out.stderr and (
+              "not a device node" in err or "no such file" in err
+          )
+          if out.ok and "List of devices attached" in out.stdout:
+              print("OK: ContainerRunner ran adb inside the sandbox and returned its output")
+          elif usb_limitation:
+              print(
+                  "OK (expected): ContainerRunner built a correct docker invocation; the "
+                  "hosted runner has no USB device node for --device=/dev/bus/usb — container "
+                  "mode needs real hardware (see docs/TESTING.md)."
+              )
+          else:
+              sys.exit(f"FAIL: unexpected ContainerRunner failure rc={out.returncode}: {out.stderr}")
+          PY
+
+      - name: Generate and upload the SBOM (CycloneDX)
+        # Ship the dependency inventory as a build artifact so "are we affected
+        # by CVE-X?" is answerable later (audit M11).
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: cyclonedx
+          output: sbom.cdx.json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sbom-cyclonedx
+          path: sbom.cdx.json
+          if-no-files-found: warn

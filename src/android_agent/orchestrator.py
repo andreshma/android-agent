@@ -26,7 +26,7 @@ from .capabilities.inspect import InspectCapability
 from .capabilities.optimize import OptimizeCapability
 from .capabilities.unlock import UnlockCapability
 from .llm.base import LLM
-from .models import Device, DeviceMode, Mission, Plan, RiskLevel
+from .models import Device, DeviceMode, Mission, Plan, RiskLevel, StepResult
 
 _RISK_ORDER = [RiskLevel.NONE, RiskLevel.LOW, RiskLevel.HIGH]
 
@@ -48,11 +48,13 @@ MISSION_KEYS: dict[Mission, set[str]] = {
     Mission.OPTIMIZE: _READONLY_ADB
     | {"adb:shell:pm disable-user", "adb:shell:pm enable", "adb:shell:pm clear"},
     Mission.FLASH: {"fastboot:devices", "fastboot:getvar", "fastboot:flash", "fastboot:reboot"},
+    # Re-locking the bootloader is a deliberate non-goal (it can brick a device
+    # running a custom ROM), so no mission may propose `fastboot flashing lock`
+    # even though the allowlist defines a validator for it (audit M8).
     Mission.UNLOCK: {
         "fastboot:devices",
         "fastboot:getvar",
         "fastboot:flashing unlock",
-        "fastboot:flashing lock",
         "fastboot:reboot",
     },
 }
@@ -97,14 +99,19 @@ class PlanRejected(RuntimeError):
     """Raised when a proposed plan is out of scope for its mission."""
 
 
-def annotate_plan_risk(plan: Plan) -> None:
+def validate_plan(plan: Plan) -> None:
     """Validate and clamp a proposed plan before the user can confirm it.
 
-    For every step: (1) validate the command against the allowlist (raises
+    This is the single gate every plan passes — whether it came from the LLM
+    (``propose``) or from a deterministic builder (``flash-rom``/``debloat``),
+    so the two paths to a dangerous action share one set of guardrails (audit
+    H1). For every step: (1) validate the command against the allowlist (raises
     ``CommandDenied`` on anything not permitted), (2) reject it if the command
     is outside the mission's allowed set, (3) reject a pm action that targets a
-    protected/core package, and (4) raise each step's risk to the authoritative
-    level derived from the command (never downgrades)."""
+    protected/core package, (4) raise each step's risk to the authoritative
+    level derived from the command (never downgrades), and (5) set
+    ``reversible``/``undo`` from the allowlist rather than trusting the LLM
+    (audit M1/M2)."""
     allowed = MISSION_KEYS.get(plan.mission, set())
     for step in plan.steps:
         key = allowlist.validate(step.command)  # raises if not allowlisted
@@ -120,6 +127,15 @@ def annotate_plan_risk(plan: Plan) -> None:
         derived = allowlist.risk_for(step.command)
         if _RISK_ORDER.index(derived) > _RISK_ORDER.index(step.risk):
             step.risk = derived
+        # Reversibility is authoritative, not model-authored: an irreversible
+        # step can never be presented as "Reversible: yes" with a bogus undo.
+        step.reversible = allowlist.reversible_for(step.command)
+        if not step.reversible:
+            step.undo = None
+
+
+# Backwards-compatible alias: this function used to only annotate risk.
+annotate_plan_risk = validate_plan
 
 
 class Orchestrator:
@@ -153,10 +169,18 @@ class Orchestrator:
         facts = self.inspect.gather_facts(device)
         facts.update(self._caps[mission].gather_facts(device))
         plan = self.llm.propose_plan(mission=mission, request=request, device_facts=facts)
-        annotate_plan_risk(plan)
+        validate_plan(plan)
         if self.log:
             self.log.plan_proposed(device.serial, plan)
         return plan
+
+    @staticmethod
+    def validate(plan: Plan) -> None:
+        """Validate a deterministic (non-LLM) plan through the same gate as a
+        proposed one, so ``flash-rom``/``debloat`` get the allowlist + mission +
+        protected-package checks too (audit H1). Raises ``CommandDenied`` /
+        ``PlanRejected``."""
+        validate_plan(plan)
 
     def run(self, device: Device, plan: Plan):
         """Phase 2: execute an already-confirmed plan. The CLI must have
@@ -167,7 +191,15 @@ class Orchestrator:
         cap = self._caps[plan.mission]
         results = []
         for step in plan.steps:
-            result = cap.execute_step(device, step)
+            try:
+                result = cap.execute_step(device, step)
+            except allowlist.CommandDenied as exc:
+                # Defence in depth: a plan is validated before it runs, so this
+                # should not happen — but if a step is somehow denied at execute
+                # time, surface it as a clean failed result (so the "partial
+                # state — do not power off" guidance prints) instead of letting a
+                # raw traceback escape mid-flash (audit H1).
+                result = StepResult(step=step, ok=False, output="", error=f"denied: {exc}")
             if self.log:
                 self.log.step_executed(device.serial, result)
             results.append(result)

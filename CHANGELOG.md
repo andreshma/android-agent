@@ -6,7 +6,48 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+- **Deterministic plans are now validated before they run (H1).** `flash-rom`
+  and `debloat` build their plans without an LLM, but previously skipped the
+  allowlist/mission validation that LLM plans go through — so a partition name
+  the allowlist rejects (e.g. a typo like `init-boot`) passed every confirmation
+  prompt, flashed the earlier partitions, then aborted mid-flash with a raw
+  traceback. Both now pass the single `validate_plan` gate before anything runs,
+  and `Orchestrator.run` turns a late `CommandDenied` into a clean failed step.
+- **`pm clear` is HIGH risk, not LOW (M1).** It wipes an app's data; it now
+  requires the typed-`yes` gate and is marked irreversible.
+- **`reversible` / `undo` are derived from the allowlist, not trusted from the
+  LLM (M1/M2).** A model can no longer present a data wipe as "Reversible: yes".
+- **The raw command and a repo-authored description are shown for every HIGH
+  step (M2)**, so the operator confirms what will truly run, not the LLM's prose.
+- **Bootloader re-lock (`fastboot flashing lock`) is rejected for all missions
+  (M8)** — a deliberate non-goal that can brick a device on a custom ROM.
+- **Terminal output escapes device/LLM text (M3)**, so an adb/fastboot error
+  like `Failure [DELETE_FAILED_INTERNAL_ERROR]` is no longer swallowed by Rich
+  markup and a crafted `[/x]` can no longer crash the result printer.
+- **Device-fact prompt hardening (L2/L3):** the device serial is no longer sent
+  to a hosted LLM, angle brackets in facts are escaped, and the `<device_facts>`
+  delimiter carries a per-call random nonce, so a crafted device string cannot
+  break out of the untrusted-data block.
+- **Remote-Ollama egress is now disclosed (M9):** a non-loopback `OLLAMA_HOST`
+  triggers the same "data leaves your machine" warning as a hosted backend.
+- **Credential-shaped environment variables are stripped from the toolchain
+  child process (L5)** — not just the two LLM keys, but anything token/secret/
+  key/password-shaped or in a cloud/CI credential family.
+- Flash plans now **display each image's SHA-256 and size and flag critical/
+  bricking partitions** (M8); argument validators reject a leading `-` in
+  property/getvar names (L6); the audit log file is created `0600` (L1); the
+  container child process gets no stdin and orphaned containers are force-removed
+  on timeout (L7); the container engine is resolved to an absolute path (L10).
+
 ### Added
+- **`android-agent --version`** (L4) and **`android-agent log --verify`** to
+  check the action-log hash chain from the CLI (L1).
+- **CodeQL SAST workflow** and an **SBOM (CycloneDX) build artifact** in CI
+  (M11); `ruff format --check` and Python **3.13** added to the CI matrix (L8).
+- **Property-based tests** (Hypothesis) over the allowlist, a cross-process
+  action-log chain test, a `ContainerRunner.run` test, and real-subprocess
+  coverage for the H1 refusal and the production `run unlock` CLI path (M10).
 - **Live `optimize` read path in CI**: the `emulator-smoke` job now also runs
   the `optimize` mission's read-only fact gathering against the booted emulator
   — `pm list packages`, bloatware detection and the battery ranking
@@ -60,6 +101,15 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   unit tests only covered command *construction*, so this was never caught;
   the new `container-runner` CI job surfaced it. Now installs the `adb` and
   `fastboot` packages, which ship `/usr/bin/adb` and `/usr/bin/fastboot`.
+
+### Changed
+- **Container mode is documented honestly as experimental / unverified on
+  hardware (M5/M6/M7).** The docs no longer call it uniformly "network-less": it
+  is network-less on Linux, but on Windows/macOS it reaches the host gateway.
+  The sandbox base image is pinned by digest and declares `HEALTHCHECK NONE`
+  (M6/L11), with a note that Debian's platform-tools lag Google's current ones.
+- **Single source of truth for the default hosted model id** (`config.DEFAULT_
+  ANTHROPIC_MODEL`), and a clear error when that model id is not found (L12).
 
 ## [0.1.2] - 2026-11-04
 
