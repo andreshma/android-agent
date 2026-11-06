@@ -6,6 +6,13 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-11-06
+
+Security and robustness pass remediating a 360 audit and an adversarial review:
+plan validation unified across the LLM and deterministic paths, authoritative
+risk/reversibility, markup-safe output, honest container-mode docs, and broader
+CI (CodeQL, SBOM, Python 3.13). No breaking changes.
+
 ### Security
 - **Deterministic plans are now validated before they run (H1).** `flash-rom`
   and `debloat` build their plans without an LLM, but previously skipped the
@@ -325,7 +332,8 @@ finding remediated.
   checklist); unit tests use fake bridges.
 - `ContainerRunner` image must be built/trusted by the operator.
 
-[Unreleased]: https://github.com/andreshma/android-agent/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/andreshma/android-agent/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/andreshma/android-agent/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/andreshma/android-agent/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/andreshma/android-agent/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/andreshma/android-agent/releases/tag/v0.1.0
