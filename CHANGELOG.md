@@ -41,6 +41,17 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   stand in for, having no fastboot mode). POSIX-only; skipped on Windows, where
   image-path handling is covered by the allowlist unit tests.
 
+- **Real-subprocess coverage for the `unlock` flow** (and more `flash-rom`
+  scenarios) in `tests/test_flash_integration.py`: the bootloader unlock now
+  runs through the real execution path against the `adb`/`fastboot` stub —
+  `getvar unlocked` read over real I/O, `fastboot flashing unlock` issued
+  through `LocalRunner`, and the consent gate proven to block it before any
+  process spawns. A new flash scenario proves images given out of order are
+  still flashed in the recommended order (boot before system). Raises `unlock`
+  from "fake-bridge flow only" to "flow validated over real process I/O"; the
+  unlock itself remains hardware-only (the stub cannot reproduce a vendor
+  bootloader's data wipe or on-screen confirmation).
+
 ### Fixed
 - **Container sandbox image had no `adb`/`fastboot` on `PATH`.** The
   `docker/adb-tools.Dockerfile` installed the `android-sdk-platform-tools`
