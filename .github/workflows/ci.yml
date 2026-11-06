@@ -40,7 +40,10 @@ jobs:
         run: ruff check .
 
       - name: Format check (ruff)
-        run: ruff format --check .
+        # Scope to Python source only: ruff's handling of code blocks embedded in
+        # Markdown varies across ruff versions, which would make this check flap
+        # on a formatter bump unrelated to our code (audit L8).
+        run: ruff format --check src tests scripts
 
       - name: Type check (mypy)
         run: mypy src
@@ -178,7 +181,10 @@ jobs:
           from android_agent.bridge.device import Bridge
           from android_agent.bridge.sandbox import ContainerRunner
 
-          out = Bridge(ContainerRunner()).execute(["adb", "devices"])
+          # Force docker: the image was built into docker's daemon above, and the
+          # runner also has podman (which engine() would otherwise prefer and
+          # which can't see a docker-built image).
+          out = Bridge(ContainerRunner(engine="docker")).execute(["adb", "devices"])
           print(f"rc={out.returncode}\nstdout={out.stdout!r}\nstderr={out.stderr!r}")
           if not out.ok:
               sys.exit(f"FAIL: ContainerRunner adb exited {out.returncode}: {out.stderr}")
