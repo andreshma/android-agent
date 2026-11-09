@@ -1,0 +1,18 @@
+# Code owners for android-agent.
+#
+# Owners listed here are automatically requested for review when a pull
+# request changes matching files. See:
+# https://docs.github.com/articles/about-code-owners
+#
+# Review is requested, not enforced: branch protection currently keeps the
+# required approving review count at 0 so a solo maintainer is not blocked.
+# Raising that count later turns these into required reviewers automatically.
+
+# Everything, by default.
+*                           @andreshma
+
+# Security-sensitive boundaries deserve extra attention on every change.
+/src/android_agent/bridge/  @andreshma
+/src/android_agent/capabilities/flash.py @andreshma
+/SECURITY.md                @andreshma
+/.github/                   @andreshma
